@@ -17,7 +17,7 @@
     <p class="text-muted ft-page-desc">Dispositivos Fortinet monitorados e suas vulnerabilidades</p>
   </div>
   <div class="page-actions">
-    <button class="btn btn-sm btn-outline-secondary" id="btn-scan" onclick="scanAssets()">
+    <button class="btn btn-sm btn-outline-secondary" id="btn-scan" type="button">
       <i class="fas fa-search-plus"></i> Varrer Ativos
     </button>
     <a href="{{ url_for('fortinet.dashboard') }}" class="btn btn-sm btn-outline-secondary">
@@ -32,18 +32,18 @@
 <div class="card p-0 mt-2">
   <!-- Toolbar -->
   <div class="ft-toolbar">
-    <input type="text" id="filter-search" class="form-input" placeholder="Buscar por nome ou IP…" oninput="debounceLoad()">
-    <select id="filter-criticality" class="form-select" onchange="loadAssets(1)">
+    <input type="text" id="filter-search" class="form-input" placeholder="Buscar por nome ou IP…">
+    <select id="filter-criticality" class="form-select">
       <option value="">Todas as criticidades</option>
       <option value="CRITICAL">Crítica</option>
       <option value="HIGH">Alta</option>
       <option value="MEDIUM">Média</option>
       <option value="LOW">Baixa</option>
     </select>
-    <select id="filter-version" class="form-select" onchange="loadAssets(1)">
+    <select id="filter-version" class="form-select">
       <option value="">Todas as versões</option>
     </select>
-    <button class="btn btn-sm btn-outline-secondary" onclick="clearFilters()" title="Limpar filtros">
+    <button class="btn btn-sm btn-outline-secondary" id="clear-filters-btn" type="button" title="Limpar filtros">
       <i class="fas fa-broom"></i>
     </button>
   </div>
@@ -88,202 +88,5 @@
 {% block modals %}{% endblock %}
 
 {% block extra_js %}
-<script nonce="{{ csp_nonce() }}">
-(function () {
-  'use strict';
-  let currentPage = 1;
-  let searchTimer = null;
-
-  /* ── Load versions for filter ────────────────────────────── */
-  fetch('/fortinet/api/versions')
-    .then(r => r.json())
-    .then(d => {
-      const sel = document.getElementById('filter-version');
-      const supported = (d.versions || []).filter(v => v.is_supported).slice(0, 20);
-      if (supported.length > 0) {
-        const grp = document.createElement('optgroup');
-        grp.label = 'Suportadas';
-        supported.forEach(v => {
-          const opt = document.createElement('option');
-          opt.value = v.version;
-          opt.textContent = v.version + ' (' + v.branch + ')';
-          grp.appendChild(opt);
-        });
-        sel.appendChild(grp);
-      }
-    })
-    .catch(() => {});
-
-  /* ── Load Assets ─────────────────────────────────────────── */
-  window.loadAssets = function (page) {
-    if (page) currentPage = page;
-    const search      = document.getElementById('filter-search').value.trim();
-    const criticality = document.getElementById('filter-criticality').value;
-    const version     = document.getElementById('filter-version').value;
-
-    const params = new URLSearchParams({ page: currentPage, per_page: 25 });
-    if (criticality) params.set('criticality', criticality);
-    if (version)     params.set('version', version);
-
-    const tbody = document.getElementById('assets-tbody');
-    tbody.innerHTML = '<tr><td colspan="10" class="ft-cell-center"><i class="fas fa-spinner fa-spin me-1"></i>Carregando…</td></tr>';
-
-    fetch('/fortinet/api/assets?' + params.toString())
-      .then(r => r.json())
-      .then(d => {
-        let items = d.items || [];
-
-        /* Client-side name/ip filter */
-        if (search) {
-          const q = search.toLowerCase();
-          items = items.filter(a =>
-            (a.name || '').toLowerCase().includes(q) ||
-            (a.ip_address || '').toLowerCase().includes(q) ||
-            (a.hostname || '').toLowerCase().includes(q)
-          );
-        }
-
-        const total = d.total || 0;
-        const pages = d.pages || 1;
-
-        const summaryEl = document.getElementById('results-summary');
-        summaryEl.style.display = 'block';
-        summaryEl.textContent = `Mostrando ${items.length} de ${total} ativo(s)`;
-
-        if (items.length === 0) {
-          tbody.innerHTML = '<tr><td colspan="10" class="ft-cell-center">Nenhum ativo Fortinet encontrado.</td></tr>';
-          document.getElementById('pagination-bar').style.display = 'none';
-          return;
-        }
-
-        tbody.innerHTML = items.map(a => {
-          const isActive = a.status === 'ACTIVE';
-          const vuln = a.vulnerability_count || 0;
-          const open = a.open_vulnerabilities || 0;
-          const vulnClass = vuln === 0 ? 'vuln-chip--none' : vuln >= 20 ? 'vuln-chip--high' : 'vuln-chip--low';
-          const openClass = open === 0 ? 'vuln-chip--none' : 'vuln-chip--high';
-          const critMap = { CRITICAL:'sev-CRITICAL', HIGH:'sev-HIGH', MEDIUM:'sev-MEDIUM', LOW:'sev-LOW' };
-          const critBadge = a.criticality
-            ? `<span class="sev-badge ${critMap[a.criticality] || ''}">${a.criticality}</span>`
-            : '<span class="text-muted">—</span>';
-          const ver = a.os_version || a.version || '';
-          const verEolTag = a.version_eol
-            ? '<span class="eol-tag eol-tag--eol">EOL</span>'
-            : (!a.version_supported && ver ? '<span class="eol-tag eol-tag--old">Desatualizado</span>' : '');
-          const envBadge = a.environment
-            ? `<span class="ft-muted-sm">${a.environment}</span>`
-            : '—';
-
-          return `<tr>
-            <td>
-              <a href="/assets/${a.id}">${a.name || '—'}</a>
-              ${a.hostname ? `<small class="ft-small-meta">${a.hostname}</small>` : ''}
-            </td>
-            <td>
-              <span class="ft-capitalize">${a.product_name || a.os_name || '—'}</span>
-              ${a.vendor_name ? `<small class="ft-small-meta">${a.vendor_name}</small>` : ''}
-            </td>
-            <td><code class="ft-code-sm">${ver || '—'}</code>${verEolTag}</td>
-            <td><code class="ft-code-sm">${a.ip_address || '—'}</code></td>
-            <td>${envBadge}</td>
-            <td>${critBadge}</td>
-            <td><span class="vuln-chip ${vulnClass}">${vuln}</span></td>
-            <td><span class="vuln-chip ${openClass}">${open}</span></td>
-            <td>
-              <span class="ft-status-wrap">
-                <span class="status-dot ${isActive ? 'status-dot--active' : 'status-dot--inactive'}"></span>
-                <span class="ft-status-label">${a.status || '—'}</span>
-              </span>
-            </td>
-            <td>
-              <a href="/assets/${a.id}" class="btn btn-sm btn-outline-secondary ft-btn-xs">
-                <i class="fas fa-eye"></i>
-              </a>
-            </td>
-          </tr>`;
-        }).join('');
-
-        renderPagination(currentPage, pages, total);
-      })
-      .catch(() => {
-        tbody.innerHTML = '<tr><td colspan="10" class="ft-cell-error">Erro ao carregar assets.</td></tr>';
-      });
-  };
-
-  function renderPagination(page, pages, total) {
-    const bar = document.getElementById('pagination-bar');
-    const info = document.getElementById('page-info');
-    const btns = document.getElementById('page-btns');
-    if (pages <= 1) { bar.style.display = 'none'; return; }
-    bar.style.display = 'flex';
-    info.textContent = `Página ${page} de ${pages} · ${total} total`;
-    let html = `<button class="page-btn" ${page <= 1 ? 'disabled' : ''} onclick="loadAssets(${page - 1})"><i class="fas fa-chevron-left"></i></button>`;
-    for (let i = Math.max(1, page - 2); i <= Math.min(pages, page + 2); i++) {
-      html += `<button class="page-btn ${i === page ? 'active' : ''}" onclick="loadAssets(${i})">${i}</button>`;
-    }
-    html += `<button class="page-btn" ${page >= pages ? 'disabled' : ''} onclick="loadAssets(${page + 1})"><i class="fas fa-chevron-right"></i></button>`;
-    btns.innerHTML = html;
-  }
-
-  window.debounceLoad = function () {
-    clearTimeout(searchTimer);
-    searchTimer = setTimeout(() => loadAssets(1), 350);
-  };
-
-  window.clearFilters = function () {
-    document.getElementById('filter-search').value = '';
-    document.getElementById('filter-criticality').value = '';
-    document.getElementById('filter-version').value = '';
-    loadAssets(1);
-  };
-
-  /* ── Scan ────────────────────────────────────────────────── */
-  window.scanAssets = function () {
-    const btn = document.getElementById('btn-scan');
-    const resultBar = document.getElementById('scan-result');
-
-    btn.disabled = true;
-    btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Varrendo…';
-    resultBar.style.display = 'none';
-
-    fetch('/fortinet/api/scan', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'X-CSRFToken': (document.querySelector('meta[name="csrf-token"]') || {}).content || ''
-      },
-      body: JSON.stringify({ scan_all: true, create_associations: true })
-    })
-    .then(r => r.json())
-    .then(d => {
-      btn.disabled = false;
-      btn.innerHTML = '<i class="fas fa-search-plus"></i> Varrer Ativos';
-
-      const scanned  = d.assets_scanned ?? d.total_assets ?? d.results?.length ?? 0;
-      const newVulns = d.new_associations || 0;
-      const totalM   = d.total_matches   || 0;
-      const msg = d.error
-        ? `Erro: ${d.error}`
-        : `✓ Varredura concluída — ${scanned} ativo(s) verificado(s)` +
-          (totalM   > 0 ? `, ${totalM} CVE(s) encontrada(s)` : '') +
-          (newVulns > 0 ? `, ${newVulns} nova(s) associação(ões)` : '') + '.';
-
-      resultBar.textContent = msg;
-      resultBar.style.display = 'block';
-      if (d.error) resultBar.classList.add('scan-result-bar--error');
-      setTimeout(() => { resultBar.style.display = 'none'; resultBar.classList.remove('scan-result-bar--error'); }, 8000);
-      loadAssets(1);
-    })
-    .catch(() => {
-      btn.disabled = false;
-      btn.innerHTML = '<i class="fas fa-search-plus"></i> Varrer Ativos';
-      resultBar.textContent = 'Erro ao executar varredura.';
-      resultBar.classList.add('scan-result-bar--error');
-      resultBar.style.display = 'block';
-    });
-  };
-
-  document.addEventListener('DOMContentLoaded', () => loadAssets(1));
-}());
-</script>
+<script src="{{ url_for('static', filename='js/pages/fortinet/assets.js') }}" defer></script>
 {% endblock %}

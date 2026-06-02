@@ -904,6 +904,10 @@
     z-index: var(--z-modal);
 }
 
+.loading-overlay.is-hidden {
+    display: none;
+}
+
 .spinner {
     width: 48px;
     height: 48px;

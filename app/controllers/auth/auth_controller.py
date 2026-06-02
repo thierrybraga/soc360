@@ -146,7 +146,7 @@ def login():
             # Check if admin needs to reset password
             if user.is_admin and user.force_password_reset:
                 flash('Sua conta requer redefinição de senha. Acesse Configurações → Segurança.', 'warning')
-                return redirect(url_for('core.settings'))
+                return redirect(url_for('core.settings') + '?tab=security')
 
             # Redirect to next page or dashboard
             next_page = request.args.get('next')

@@ -117,7 +117,7 @@
                         </div>
                         
                         <!-- Test Email (shown when send_test is checked) -->
-                        <div class="mb-4" id="testEmailDiv" style="display: none;">
+                        <div class="mb-4 is-hidden" id="testEmailDiv">
                             <label for="test_email" class="form-label fw-semibold">
                                 <i class="fas fa-envelope me-2"></i>
                                 Email para Teste
@@ -139,12 +139,12 @@
                                 <span id="sendBtnText">Enviar Newsletter</span>
                             </button>
                             
-                            <button type="button" class="btn btn-outline-secondary" onclick="previewNewsletter()">
+                            <button type="button" class="btn btn-outline-secondary" id="previewNewsletterBtn">
                                 <i class="fas fa-eye me-2"></i>
                                 Visualizar
                             </button>
                             
-                            <button type="button" class="btn btn-outline-danger" onclick="clearForm()">
+                            <button type="button" class="btn btn-outline-danger" id="clearNewsletterBtn">
                                 <i class="fas fa-trash me-2"></i>
                                 Limpar
                             </button>
@@ -254,7 +254,7 @@
             </div>
             <div class="modal-footer">
                 <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Fechar</button>
-                <button type="button" class="btn btn-primary" onclick="$('#previewModal').modal('hide'); $('#sendBtn').click();">
+                <button type="button" class="btn btn-primary" id="sendPreviewBtn">
                     <i class="fas fa-paper-plane me-2"></i>
                     Enviar Newsletter
                 </button>
@@ -291,72 +291,5 @@
 {% endif %}
 {% endwith %}
 
-
-<script nonce="{{ csp_nonce() }}">
-// Toggle test email field
-document.getElementById('send_test').addEventListener('change', function() {
-    const testEmailDiv = document.getElementById('testEmailDiv');
-    const sendBtnText = document.getElementById('sendBtnText');
-    
-    if (this.checked) {
-        testEmailDiv.style.display = 'block';
-        sendBtnText.textContent = 'Enviar Teste';
-    } else {
-        testEmailDiv.style.display = 'none';
-        sendBtnText.textContent = 'Enviar Newsletter';
-    }
-});
-
-// Preview newsletter
-function previewNewsletter() {
-    const subject = document.getElementById('subject').value;
-    const content = document.getElementById('content').value;
-    
-    if (!subject || !content) {
-        alert('Por favor, preencha o assunto e o conteúdo antes de visualizar.');
-        return;
-    }
-    
-    document.getElementById('previewSubject').textContent = subject;
-    document.getElementById('previewContent').innerHTML = content;
-    
-    const modal = new bootstrap.Modal(document.getElementById('previewModal'));
-    modal.show();
-}
-
-// Clear form
-function clearForm() {
-    if (confirm('Tem certeza que deseja limpar todos os campos?')) {
-        document.getElementById('newsletterForm').reset();
-        document.getElementById('testEmailDiv').style.display = 'none';
-        document.getElementById('sendBtnText').textContent = 'Enviar Newsletter';
-    }
-}
-
-// Form submission with loading state
-document.getElementById('newsletterForm').addEventListener('submit', function() {
-    const sendBtn = document.getElementById('sendBtn');
-    const originalText = sendBtn.innerHTML;
-    
-    sendBtn.disabled = true;
-    sendBtn.innerHTML = '<i class="fas fa-spinner fa-spin me-2"></i>Enviando...';
-    
-    // Re-enable button after 10 seconds (in case of error)
-    setTimeout(function() {
-        sendBtn.disabled = false;
-        sendBtn.innerHTML = originalText;
-    }, 10000);
-});
-
-// Auto-hide toasts after 5 seconds
-document.addEventListener('DOMContentLoaded', function() {
-    const toasts = document.querySelectorAll('.toast');
-    toasts.forEach(function(toast) {
-        setTimeout(function() {
-            const bsToast = new bootstrap.Toast(toast);
-            bsToast.hide();
-        }, 5000);
-    });
-});
-</script>
+<script src="{{ url_for('static', filename='js/pages/newsletter/send_newsletter.js') }}" defer></script>
 {% endblock %}

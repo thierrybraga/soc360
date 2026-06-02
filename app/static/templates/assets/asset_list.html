@@ -207,7 +207,7 @@
         <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">
           <i class="bi bi-x-circle me-1"></i>Cancelar
         </button>
-        <form method="POST" id="delete-asset-form" class="d-inline">
+        <form method="POST" id="delete-asset-form" class="d-inline" data-delete-url-template="{{ url_for('asset.delete_asset', asset_id='ASSET_ID') }}">
           <button type="submit" class="btn btn-danger" id="delete-btn">
             <i class="bi bi-trash me-1"></i>
             <span class="btn-text">Excluir Ativo</span>
@@ -238,68 +238,5 @@
 {% endblock %}
 
 {% block extra_js %}
-<script nonce="{{ csp_nonce() }}">
-// Asset management functionality
-(function() {
-  'use strict';
-  
-  // Delete asset functionality
-  const deleteButtons = document.querySelectorAll('.delete-asset-btn');
-  const deleteModal = new bootstrap.Modal(document.getElementById('deleteAssetModal'));
-  const deleteForm = document.getElementById('delete-asset-form');
-  const assetNameElement = document.getElementById('asset-name-to-delete');
-  
-  deleteButtons.forEach(button => {
-    button.addEventListener('click', function() {
-      const assetId = this.dataset.assetId;
-      const assetName = this.dataset.assetName;
-      
-      assetNameElement.textContent = assetName;
-      deleteForm.action = `{{ url_for('asset.delete_asset', asset_id='ASSET_ID') }}`.replace('ASSET_ID', assetId);
-      
-      deleteModal.show();
-    });
-  });
-  
-  // Search functionality
-  const searchInput = document.getElementById('asset-search');
-  const statusFilter = document.getElementById('status-filter');
-  
-  function filterAssets() {
-    const searchTerm = searchInput.value.toLowerCase();
-    const statusFilter = document.getElementById('status-filter').value;
-    const rows = document.querySelectorAll('tbody tr[data-asset-id]');
-    
-    rows.forEach(row => {
-      const name = row.querySelector('td:first-child').textContent.toLowerCase();
-      const ip = row.querySelector('code').textContent.toLowerCase();
-      const status = row.querySelector('.status-badge').className.toLowerCase();
-      
-      const matchesSearch = name.includes(searchTerm) || ip.includes(searchTerm);
-      const matchesStatus = !statusFilter || status.includes(statusFilter);
-      
-      row.style.display = matchesSearch && matchesStatus ? '' : 'none';
-    });
-  }
-  
-  if (searchInput) {
-    searchInput.addEventListener('input', filterAssets);
-  }
-  
-  if (statusFilter) {
-    statusFilter.addEventListener('change', filterAssets);
-  }
-  
-  // Export functionality
-  const exportBtn = document.getElementById('export-btn');
-  if (exportBtn) {
-    exportBtn.addEventListener('click', function() {
-      // Placeholder for export functionality
-      const toast = new bootstrap.Toast(document.getElementById('feedback-toast'));
-      document.querySelector('.toast-body').textContent = 'Funcionalidade de exportação em desenvolvimento.';
-      toast.show();
-    });
-  }
-})();
-</script>
+<script src="{{ url_for('static', filename='js/pages/assets/asset_list.js') }}" defer></script>
 {% endblock %}

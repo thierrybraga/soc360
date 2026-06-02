@@ -25,22 +25,22 @@
 <div class="card p-0">
   <!-- Toolbar -->
   <div class="ft-toolbar">
-    <input type="text" id="filter-search" class="form-input" placeholder="Buscar CVE ID ou descrição…" oninput="debounceLoad()">
-    <select id="filter-product" class="form-select" onchange="loadCVEs(1)">
+    <input type="text" id="filter-search" class="form-input" placeholder="Buscar CVE ID ou descrição…">
+    <select id="filter-product" class="form-select">
       <option value="">Todos os produtos</option>
     </select>
-    <select id="filter-severity" class="form-select" onchange="loadCVEs(1)">
+    <select id="filter-severity" class="form-select">
       <option value="">Todas as severidades</option>
       <option value="CRITICAL">Critical</option>
       <option value="HIGH">High</option>
       <option value="MEDIUM">Medium</option>
       <option value="LOW">Low</option>
     </select>
-    <select id="filter-kev" class="form-select" onchange="loadCVEs(1)">
+    <select id="filter-kev" class="form-select">
       <option value="">Incluir todas</option>
       <option value="true">Somente CISA KEV</option>
     </select>
-    <button class="btn btn-sm btn-outline-secondary" onclick="clearFilters()" title="Limpar filtros">
+    <button class="btn btn-sm btn-outline-secondary" id="clear-filters-btn" type="button" title="Limpar filtros">
       <i class="fas fa-broom"></i>
     </button>
   </div>
@@ -81,151 +81,5 @@
 {% block modals %}{% endblock %}
 
 {% block extra_js %}
-<script nonce="{{ csp_nonce() }}">
-(function () {
-  'use strict';
-
-  let currentPage = 1;
-  let searchTimer = null;
-
-  /* ── Helpers ─────────────────────────────────────────────── */
-  function sevBadge(sev) {
-    if (!sev) return '<span class="sev-badge sev-LOW">—</span>';
-    return `<span class="sev-badge sev-${sev}">${sev}</span>`;
-  }
-
-  function fmtDate(iso) {
-    if (!iso) return '—';
-    return new Date(iso).toLocaleDateString('pt-BR', { day:'2-digit', month:'2-digit', year:'numeric' });
-  }
-
-  function escHtml(s) {
-    return (s || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
-  }
-
-  /* ── Load products for select ────────────────────────────── */
-  fetch('/fortinet/api/products')
-    .then(r => r.json())
-    .then(d => {
-      const sel = document.getElementById('filter-product');
-      (d.products || []).forEach(p => {
-        const opt = document.createElement('option');
-        opt.value = p.cpe_product || p.key;
-        opt.textContent = p.name || p.key;
-        sel.appendChild(opt);
-      });
-    })
-    .catch(() => {});
-
-  /* ── Load CVEs ───────────────────────────────────────────── */
-  window.loadCVEs = function (page) {
-    if (page) currentPage = page;
-    const search   = document.getElementById('filter-search').value.trim();
-    const product  = document.getElementById('filter-product').value;
-    const severity = document.getElementById('filter-severity').value;
-    const kev      = document.getElementById('filter-kev').value;
-
-    const params = new URLSearchParams({ page: currentPage, per_page: 50 });
-    if (search)   params.set('search', search);
-    if (product)  params.set('product', product);
-    if (severity) params.set('severity', severity);
-    if (kev)      params.set('cisa_kev', kev);
-
-    const tbody = document.getElementById('cves-tbody');
-    tbody.innerHTML = '<tr><td colspan="7" class="ft-cell-center"><i class="fas fa-spinner fa-spin me-1"></i>Carregando…</td></tr>';
-
-    fetch('/fortinet/api/cves?' + params.toString())
-      .then(r => r.json())
-      .then(d => {
-        const items = d.items || [];
-        const total = d.total || 0;
-        const pages = d.pages || 1;
-
-        /* Summary */
-        const summaryEl = document.getElementById('results-summary');
-        summaryEl.style.display = 'block';
-        summaryEl.textContent = `Mostrando ${items.length} de ${total} CVE(s)`;
-
-        if (items.length === 0) {
-          tbody.innerHTML = '<tr><td colspan="7" class="ft-cell-center">Nenhuma CVE encontrada com os filtros atuais.</td></tr>';
-          document.getElementById('pagination-bar').style.display = 'none';
-          return;
-        }
-
-        tbody.innerHTML = items.map(c => {
-          // to_list_dict() keys: severity, published, cisa_kev, exploit_available, patch_available
-          const sev  = c.severity || c.base_severity;
-          const pub  = c.published || c.published_date;
-          const kev  = c.cisa_kev  ?? c.is_in_cisa_kev;
-
-          const prods = (c.products || []).map(p =>
-            `<span class="prod-chip">${escHtml(p)}</span>`
-          ).join('');
-          const flags = [
-            kev                 ? '<span class="flag-badge flag-kev"><i class="fas fa-flag"></i>KEV</span>' : '',
-            c.exploit_available ? '<span class="flag-badge flag-exploit"><i class="fas fa-bomb"></i>Exploit</span>' : '',
-            c.patch_available   ? '<span class="flag-badge flag-patch"><i class="fas fa-wrench"></i>Patch</span>' : '',
-          ].filter(Boolean).join(' ');
-
-          const desc = escHtml((c.description || '').substring(0, 200)) + ((c.description || '').length > 200 ? '…' : '');
-          const cvssClass = (c.cvss_score || 0) >= 9 ? 'cvss-critical' : (c.cvss_score || 0) >= 7 ? 'cvss-high' : '';
-
-          return `<tr>
-            <td><a href="/vulnerabilities/${c.cve_id}" target="_blank">${c.cve_id}</a></td>
-            <td>${sevBadge(sev)}</td>
-            <td><strong class="${cvssClass}">${c.cvss_score != null ? c.cvss_score.toFixed(1) : '—'}</strong></td>
-            <td>${prods || '<span class="text-muted">—</span>'}</td>
-            <td class="text-nowrap">${flags || '<span class="text-muted">—</span>'}</td>
-            <td class="text-nowrap text-muted">${fmtDate(pub)}</td>
-            <td class="desc-cell"><p title="${desc}">${desc}</p></td>
-          </tr>`;
-        }).join('');
-
-        /* Pagination */
-        renderPagination(currentPage, pages, total);
-      })
-      .catch(() => {
-        tbody.innerHTML = '<tr><td colspan="7" class="ft-cell-error">Erro ao carregar CVEs.</td></tr>';
-      });
-  };
-
-  function renderPagination(page, pages, total) {
-    const bar = document.getElementById('pagination-bar');
-    const info = document.getElementById('page-info');
-    const btns = document.getElementById('page-btns');
-
-    if (pages <= 1) { bar.style.display = 'none'; return; }
-    bar.style.display = 'flex';
-    info.textContent = `Página ${page} de ${pages} · ${total} total`;
-
-    let html = `<button class="page-btn" ${page <= 1 ? 'disabled' : ''} onclick="loadCVEs(${page - 1})"><i class="fas fa-chevron-left"></i></button>`;
-    const range = [];
-    for (let i = 1; i <= pages; i++) {
-      if (i === 1 || i === pages || (i >= page - 2 && i <= page + 2)) range.push(i);
-      else if (range[range.length - 1] !== '…') range.push('…');
-    }
-    range.forEach(p => {
-      if (p === '…') html += '<button class="page-btn" disabled>…</button>';
-      else html += `<button class="page-btn ${p === page ? 'active' : ''}" onclick="loadCVEs(${p})">${p}</button>`;
-    });
-    html += `<button class="page-btn" ${page >= pages ? 'disabled' : ''} onclick="loadCVEs(${page + 1})"><i class="fas fa-chevron-right"></i></button>`;
-    btns.innerHTML = html;
-  }
-
-  window.debounceLoad = function () {
-    clearTimeout(searchTimer);
-    searchTimer = setTimeout(() => loadCVEs(1), 350);
-  };
-
-  window.clearFilters = function () {
-    document.getElementById('filter-search').value = '';
-    document.getElementById('filter-product').value = '';
-    document.getElementById('filter-severity').value = '';
-    document.getElementById('filter-kev').value = '';
-    loadCVEs(1);
-  };
-
-  document.addEventListener('DOMContentLoaded', () => loadCVEs(1));
-}());
-</script>
+<script src="{{ url_for('static', filename='js/pages/fortinet/cves.js') }}" defer></script>
 {% endblock %}

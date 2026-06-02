@@ -308,6 +308,160 @@ function setupDangerousActionHandlers() {
 }
 
 // ────────────────────────────────────────────────────────────────────────────
+// OPENAI ADMIN CONFIG
+// ────────────────────────────────────────────────────────────────────────────
+
+function openaiCsrfToken() {
+    return document.querySelector('meta[name="csrf-token"]')?.content || '';
+}
+
+async function openaiRequest(url, options = {}) {
+    const response = await fetch(url, {
+        credentials: 'same-origin',
+        ...options,
+        headers: {
+            'Accept': 'application/json',
+            'Content-Type': 'application/json',
+            'X-CSRFToken': openaiCsrfToken(),
+            ...(options.headers || {})
+        }
+    });
+    const body = await response.json().catch(() => ({}));
+    if (!response.ok) {
+        throw new Error(body.error || body.message || 'Falha ao processar configuração OpenAI.');
+    }
+    return body;
+}
+
+function setOpenAIButtonsBusy(busy) {
+    ['openai-save-btn', 'openai-test-btn', 'openai-remove-btn'].forEach(id => {
+        const btn = document.getElementById(id);
+        if (!btn) return;
+        if (id === 'openai-remove-btn' && !btn.dataset.disabledByStatus) {
+            btn.dataset.disabledByStatus = btn.disabled ? 'true' : 'false';
+        }
+        btn.disabled = busy || (id === 'openai-remove-btn' && btn.dataset.disabledByStatus === 'true');
+    });
+}
+
+function renderOpenAIStatus(status) {
+    const configured = Boolean(status?.configured);
+    const source = status?.source || '';
+    const badge = document.getElementById('openai-status-badge');
+    const alert = document.getElementById('openai-status-alert');
+    const title = document.getElementById('openai-status-title');
+    const text = document.getElementById('openai-status-text');
+    const removeBtn = document.getElementById('openai-remove-btn');
+
+    if (badge) {
+        badge.classList.toggle('scard__status--ok', configured);
+        badge.innerHTML = `<i class="fas fa-circle"></i>${configured ? 'Chave configurada' : 'Chave não configurada'}`;
+    }
+    if (alert) {
+        alert.classList.toggle('alert-success', configured);
+        alert.classList.toggle('alert-warning', !configured);
+    }
+    if (title) {
+        title.textContent = configured ? 'Chave configurada' : 'Chave não configurada';
+    }
+    if (text) {
+        if (!configured) {
+            text.textContent = 'Cadastre uma chave para habilitar respostas reais da OpenAI.';
+        } else {
+            const sourceText = source === 'environment'
+                ? ' via variável de ambiente'
+                : ' via armazenamento seguro interno';
+            text.textContent = `Usando ${status.masked_key || 'sk-...'}${sourceText}.`;
+        }
+    }
+    if (removeBtn) {
+        const disabledByStatus = !configured || source === 'environment';
+        removeBtn.dataset.disabledByStatus = disabledByStatus ? 'true' : 'false';
+        removeBtn.disabled = disabledByStatus;
+    }
+}
+
+function showOpenAIResult(message, type = 'success') {
+    const toast = window.OpenMonitor?.showToast;
+    if (typeof toast === 'function') {
+        toast(message, type);
+        return;
+    }
+    window.alert(message);
+}
+
+function setupOpenAIConfig() {
+    const form = document.getElementById('openaiConfigForm');
+    if (!form) return;
+
+    const input = document.getElementById('openaiApiKeyInput');
+    const testBtn = document.getElementById('openai-test-btn');
+    const removeBtn = document.getElementById('openai-remove-btn');
+
+    form.addEventListener('submit', async event => {
+        event.preventDefault();
+        const apiKey = input?.value.trim() || '';
+        if (!apiKey) {
+            showOpenAIResult('Informe uma chave OpenAI para salvar.', 'warning');
+            input?.focus();
+            return;
+        }
+
+        setOpenAIButtonsBusy(true);
+        try {
+            const body = await openaiRequest('/api/v1/admin/openai-key', {
+                method: 'POST',
+                body: JSON.stringify({ api_key: apiKey })
+            });
+            if (input) input.value = '';
+            renderOpenAIStatus(body.status);
+            showOpenAIResult(body.message || 'Chave OpenAI salva com sucesso.', 'success');
+        } catch (error) {
+            showOpenAIResult(error.message, 'error');
+        } finally {
+            setOpenAIButtonsBusy(false);
+        }
+    });
+
+    testBtn?.addEventListener('click', async () => {
+        const apiKey = input?.value.trim() || '';
+        setOpenAIButtonsBusy(true);
+        try {
+            const body = await openaiRequest('/api/v1/admin/openai-key/test', {
+                method: 'POST',
+                body: JSON.stringify(apiKey ? { api_key: apiKey } : {})
+            });
+            if (input) input.value = '';
+            showOpenAIResult(body.message || 'Conexão testada com sucesso.', body.ok ? 'success' : 'warning');
+        } catch (error) {
+            showOpenAIResult(error.message, 'error');
+        } finally {
+            setOpenAIButtonsBusy(false);
+        }
+    });
+
+    removeBtn?.addEventListener('click', async () => {
+        const ok = await confirmDangerous(
+            'A chave salva no armazenamento interno será removida. Se houver uma chave em variável de ambiente, ela continuará ativa.',
+            { title: 'Remover chave OpenAI', confirmText: 'Remover', cancelText: 'Cancelar' }
+        );
+        if (!ok) return;
+
+        setOpenAIButtonsBusy(true);
+        try {
+            const body = await openaiRequest('/api/v1/admin/openai-key', { method: 'DELETE' });
+            if (input) input.value = '';
+            renderOpenAIStatus(body.status);
+            showOpenAIResult(body.message || 'Chave OpenAI removida.', 'success');
+        } catch (error) {
+            showOpenAIResult(error.message, 'error');
+        } finally {
+            setOpenAIButtonsBusy(false);
+        }
+    });
+}
+
+// ────────────────────────────────────────────────────────────────────────────
 // BUTTON FEEDBACK
 // ────────────────────────────────────────────────────────────────────────────
 
@@ -377,6 +531,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
     setupFormValidation();
     setupDangerousActionHandlers();
+    setupOpenAIConfig();
     setupButtonFeedback();
     setupFlashAutoDismiss();
 });

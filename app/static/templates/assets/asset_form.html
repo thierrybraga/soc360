@@ -70,7 +70,7 @@
           </p>
         </div>
 
-        <form method="POST" novalidate class="form" id="asset-form" aria-labelledby="assetFormTitle">
+        <form method="POST" novalidate class="form" id="asset-form" aria-labelledby="assetFormTitle" data-simple-form-validation>
           {{ form.csrf_token }}
 
           <fieldset class="mb-4">
@@ -198,77 +198,6 @@
 <!-- Toast Container -->
 <div class="toast-container position-fixed top-0 end-0 p-3 z-1055"></div>
 
-<script nonce="{{ csp_nonce() }}">
-// Form validation and submission
-document.addEventListener('DOMContentLoaded', function() {
-  const form = document.getElementById('asset-form');
-  const submitBtn = document.getElementById('submit-btn');
-  const btnText = submitBtn.querySelector('.btn-text');
-  const btnLoading = submitBtn.querySelector('.btn-loading');
-
-  // Form submission with loading state
-  form.addEventListener('submit', function(e) {
-    if (form.checkValidity()) {
-      submitBtn.disabled = true;
-      btnText.classList.add('d-none');
-      btnLoading.classList.remove('d-none');
-    }
-  });
-
-  // IP address validation
-  const ipInput = document.getElementById('ip_address');
-  ipInput.addEventListener('blur', function() {
-    const ipPattern = /^(?:(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\.){3}(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)$/;
-    const value = this.value.trim();
-    
-    if (value && !ipPattern.test(value)) {
-      this.classList.add('is-invalid');
-      this.classList.remove('is-valid');
-      
-      let feedback = this.parentNode.querySelector('.invalid-feedback');
-      if (!feedback) {
-        feedback = document.createElement('div');
-        feedback.className = 'invalid-feedback';
-        this.parentNode.appendChild(feedback);
-      }
-      feedback.textContent = 'Por favor, insira um endereço IP válido';
-    } else if (value) {
-      this.classList.remove('is-invalid');
-      this.classList.add('is-valid');
-    }
-  });
-
-  // Real-time validation feedback
-  const inputs = form.querySelectorAll('input, select, textarea');
-  inputs.forEach(input => {
-    input.addEventListener('blur', function() {
-      validateField(this);
-    });
-
-    input.addEventListener('input', function() {
-      if (this.classList.contains('is-invalid')) {
-        validateField(this);
-      }
-    });
-  });
-
-  function validateField(field) {
-    const value = field.value.trim();
-    const isRequired = field.hasAttribute('required') || field.labels[0]?.classList.contains('required');
-    
-    if (isRequired && !value) {
-      field.classList.add('is-invalid');
-      field.classList.remove('is-valid');
-    } else if (value) {
-      field.classList.remove('is-invalid');
-      field.classList.add('is-valid');
-    } else {
-      field.classList.remove('is-invalid', 'is-valid');
-    }
-  }
-
-  // showToast — delegates to global window.showToast (js/core/utils.js)
-});
-
-</script>
+<script src="{{ url_for('static', filename='js/pages/assets/asset_form_legacy.js') }}" defer></script>
+<script src="{{ url_for('static', filename='js/core/simple_form_validation.js') }}" defer></script>
 {% endblock %}

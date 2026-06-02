@@ -405,15 +405,24 @@ OpenMonitor.ui = {
         if (!overlay) {
             overlay = document.createElement('div');
             overlay.className = 'loading-overlay';
+            overlay.setAttribute('aria-hidden', 'false');
             overlay.innerHTML = `
                 <div class="spinner"></div>
                 <span class="loading-text">${OpenMonitor.utils.escapeHtml(message)}</span>
             `;
             document.body.appendChild(overlay);
         } else {
-            overlay.querySelector('.loading-text').textContent = message;
-            overlay.style.display = 'flex';
+            let text = overlay.querySelector('.loading-text');
+            if (!text) {
+                text = document.createElement('span');
+                text.className = 'loading-text';
+                overlay.appendChild(text);
+            }
+            text.textContent = message;
         }
+        overlay.classList.remove('is-hidden');
+        overlay.setAttribute('aria-hidden', 'false');
+        overlay.style.display = 'flex';
         return overlay;
     },
 
@@ -423,6 +432,8 @@ OpenMonitor.ui = {
     hideLoading() {
         const overlay = document.querySelector('.loading-overlay');
         if (overlay) {
+            overlay.classList.add('is-hidden');
+            overlay.setAttribute('aria-hidden', 'true');
             overlay.style.display = 'none';
         }
     },
@@ -997,6 +1008,98 @@ OpenMonitor.search = {
 };
 
 // =============================================================================
+// DECLARATIVE ACTIONS
+// =============================================================================
+
+OpenMonitor.actions = {
+    init() {
+        document.addEventListener('click', (event) => {
+            const trigger = event.target.closest('[data-action]');
+            if (!trigger) {
+                return;
+            }
+
+            const action = trigger.dataset.action;
+            if (action === 'reload-page') {
+                event.preventDefault();
+                window.location.reload();
+            }
+
+            if (action === 'print-page') {
+                event.preventDefault();
+                window.print();
+            }
+
+            if (action === 'reset-form') {
+                event.preventDefault();
+                const form = trigger.closest('form') || document.querySelector(trigger.dataset.formTarget);
+                form?.reset();
+                form?.classList.remove('was-validated');
+            }
+
+            if (action === 'hide-target') {
+                event.preventDefault();
+                document.querySelector(trigger.dataset.target)?.classList.add('is-hidden');
+            }
+
+            if (action === 'copy-text') {
+                event.preventDefault();
+                this.copyText(trigger.dataset.copyText || '');
+            }
+
+            if (action === 'copy-element-text') {
+                event.preventDefault();
+                const element = document.getElementById(trigger.dataset.copyTarget || '');
+                this.copyText(element?.innerText || element?.textContent || '');
+            }
+        });
+
+        document.addEventListener('submit', (event) => {
+            const form = event.target.closest('form[data-confirm]');
+            if (!form) {
+                return;
+            }
+
+            const message = form.dataset.confirm;
+            if (message && !window.confirm(message)) {
+                event.preventDefault();
+            }
+        });
+
+        document.addEventListener('change', (event) => {
+            const select = event.target.closest('[data-pagination-per-page]');
+            if (!select) {
+                return;
+            }
+
+            const url = new URL(window.location);
+            url.searchParams.set('per_page', select.value);
+            url.searchParams.set('page', '1');
+            window.location.href = url.toString();
+        });
+
+        document.querySelectorAll('[data-progress-width]').forEach(element => {
+            element.style.setProperty('--progress-width', element.dataset.progressWidth);
+        });
+    },
+
+    async copyText(text) {
+        try {
+            await navigator.clipboard.writeText(text);
+            const toastElement = document.getElementById('copyToast');
+            if (toastElement && window.bootstrap) {
+                bootstrap.Toast.getOrCreateInstance(toastElement).show();
+                return;
+            }
+            window.OpenMonitor?.showToast?.('Texto copiado', 'success');
+        } catch (error) {
+            console.error('Copy failed:', error);
+            window.OpenMonitor?.showToast?.('Erro ao copiar', 'error');
+        }
+    }
+};
+
+// =============================================================================
 // INITIALIZATION
 // =============================================================================
 
@@ -1025,6 +1128,9 @@ document.addEventListener('DOMContentLoaded', () => {
     
     // Initialize global search
     OpenMonitor.search.init();
+
+    // Initialize declarative actions
+    OpenMonitor.actions.init();
     
     // Handle flash messages auto-dismiss
     document.querySelectorAll('.flash-messages .alert, .flash-message').forEach(flash => {

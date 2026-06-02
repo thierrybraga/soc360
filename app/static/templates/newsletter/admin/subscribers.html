@@ -177,7 +177,7 @@
                             <td class="text-center">
                                 <div class="btn-group btn-group-sm" role="group">
                                     <form method="POST" action="{{ url_for('newsletter_admin.toggle_subscriber_status', subscriber_id=loop.index0) }}" 
-                                          class="d-inline" onsubmit="return confirm('Tem certeza que deseja alterar o status deste assinante?')">
+                                          class="d-inline" data-confirm="Tem certeza que deseja alterar o status deste assinante?">
                                         {% if subscriber.is_active %}
                                         <button type="submit" class="btn btn-outline-warning" title="Desativar">
                                             <i class="fas fa-user-times"></i>
@@ -190,7 +190,7 @@
                                     </form>
                                     
                                     <button type="button" class="btn btn-outline-primary" 
-                                            onclick="copyToClipboard('{{ subscriber.email }}')" title="Copiar Email">
+                                            data-action="copy-text" data-copy-text="{{ subscriber.email }}" title="Copiar Email">
                                         <i class="fas fa-copy"></i>
                                     </button>
                                 </div>
@@ -299,18 +299,4 @@
     </div>
 </div>
 
-
-<script nonce="{{ csp_nonce() }}">
-function copyToClipboard(text) {
-    navigator.clipboard.writeText(text).then(function() {
-        // Show toast
-        const toastElement = document.getElementById('copyToast');
-        const toast = new bootstrap.Toast(toastElement);
-        toast.show();
-    }).catch(function(err) {
-        console.error('Erro ao copiar: ', err);
-        alert('Erro ao copiar email');
-    });
-}
-</script>
 {% endblock %}

@@ -307,3 +307,12 @@ class RuleFormModule {
 // Initialize
 const ruleFormModule = new RuleFormModule();
 window.ruleFormModule = ruleFormModule;
+
+const ruleDataElement = document.getElementById('rule-data');
+if (ruleDataElement?.dataset.rule) {
+    try {
+        ruleFormModule.loadRuleData(JSON.parse(ruleDataElement.dataset.rule));
+    } catch (error) {
+        console.error('Failed to parse rule data:', error);
+    }
+}

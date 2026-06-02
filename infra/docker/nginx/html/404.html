@@ -4,71 +4,9 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Page Not Found - Open-Monitor</title>
-    <style>
-        * {
-            margin: 0;
-            padding: 0;
-            box-sizing: border-box;
-        }
-        
-        body {
-            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
-            background: #f8f9fa;
-            min-height: 100vh;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            color: #333;
-        }
-        
-        .container {
-            text-align: center;
-            padding: 2rem;
-            max-width: 500px;
-        }
-        
-        .error-code {
-            font-size: 6rem;
-            font-weight: bold;
-            color: #f59e0b;
-            margin-bottom: 1rem;
-        }
-        
-        .error-title {
-            font-size: 1.5rem;
-            color: #1f2937;
-            margin-bottom: 1rem;
-        }
-        
-        .error-message {
-            color: #6b7280;
-            margin-bottom: 2rem;
-            line-height: 1.6;
-        }
-        
-        .card {
-            background: white;
-            border-radius: 12px;
-            padding: 2rem;
-            box-shadow: 0 4px 6px -1px rgba(0,0,0,0.1);
-        }
-        
-        .home-btn {
-            display: inline-block;
-            padding: 0.75rem 1.5rem;
-            background: #3b82f6;
-            color: white;
-            text-decoration: none;
-            border-radius: 6px;
-            transition: background 0.3s;
-        }
-        
-        .home-btn:hover {
-            background: #2563eb;
-        }
-    </style>
+    <link rel="stylesheet" href="/error.css">
 </head>
-<body>
+<body class="error-page error-page--not-found">
     <div class="container">
         <div class="card">
             <div class="error-code">404</div>

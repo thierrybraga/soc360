@@ -167,7 +167,7 @@
                 Editar Ativo
               </a>
 
-              <button type="button" class="btn btn-outline-primary" id="ping-btn" onclick="pingAsset()">
+              <button type="button" class="btn btn-outline-primary" id="ping-btn">
                 <i class="bi bi-wifi me-2"></i>
                 <span class="btn-text">Testar Conectividade</span>
                 <span class="btn-loading d-none">
@@ -176,7 +176,7 @@
                 </span>
               </button>
 
-              <button type="button" class="btn btn-outline-info" id="scan-btn" onclick="scanPorts()">
+              <button type="button" class="btn btn-outline-info" id="scan-btn">
                 <i class="bi bi-search me-2"></i>
                 <span class="btn-text">Escanear Portas</span>
                 <span class="btn-loading d-none">
@@ -305,58 +305,5 @@
 {% endblock %}
 
 {% block extra_js %}
-<script nonce="{{ csp_nonce() }}">
-// Asset detail functionality
-(function() {
-  'use strict';
-
-  // Ping asset functionality
-  window.pingAsset = function() {
-    const toast = new bootstrap.Toast(document.getElementById('feedback-toast'));
-    const toastBody = document.querySelector('#feedback-toast .toast-body');
-    const toastIcon = document.querySelector('#feedback-toast .toast-header i');
-    const toastTitle = document.querySelector('#feedback-toast .toast-header strong');
-
-    // Simulate ping operation
-    toastIcon.className = 'bi bi-hourglass-split me-2';
-    toastIcon.style.color = 'var(--warning)';
-    toastTitle.textContent = 'Testando...';
-    toastBody.textContent = 'Testando conectividade com o ativo...';
-    toast.show();
-
-    // Simulate async operation
-    setTimeout(() => {
-      toastIcon.className = 'bi bi-check-circle-fill me-2';
-      toastIcon.style.color = 'var(--success)';
-      toastTitle.textContent = 'Sucesso';
-      toastBody.textContent = 'Ativo respondeu ao ping com sucesso!';
-      toast.show();
-    }, 2000);
-  };
-
-  // Port scan functionality
-  window.scanPorts = function() {
-    const toast = new bootstrap.Toast(document.getElementById('feedback-toast'));
-    const toastBody = document.querySelector('#feedback-toast .toast-body');
-    const toastIcon = document.querySelector('#feedback-toast .toast-header i');
-    const toastTitle = document.querySelector('#feedback-toast .toast-header strong');
-
-    // Simulate port scan operation
-    toastIcon.className = 'bi bi-hourglass-split me-2';
-    toastIcon.style.color = 'var(--warning)';
-    toastTitle.textContent = 'Escaneando...';
-    toastBody.textContent = 'Escaneando portas do ativo...';
-    toast.show();
-
-    // Simulate async operation
-    setTimeout(() => {
-      toastIcon.className = 'bi bi-check-circle-fill me-2';
-      toastIcon.style.color = 'var(--success)';
-      toastTitle.textContent = 'Concluído';
-      toastBody.textContent = 'Escaneamento concluído. 5 portas abertas encontradas.';
-      toast.show();
-    }, 3000);
-  };
-})();
-</script>
+<script src="{{ url_for('static', filename='js/pages/assets/asset_detail.js') }}" defer></script>
 {% endblock %}

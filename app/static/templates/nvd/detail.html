@@ -12,7 +12,8 @@
 {% set sev_lower = sev|lower %}
 {% set sev_class = 'danger' if sev == 'CRITICAL' else 'warning' if sev == 'HIGH' else 'info' if sev == 'MEDIUM' else 'success' if sev == 'LOW' else 'secondary' %}
 
-<div class="page-shell page-shell--wide" data-page="nvd-detail">
+<div class="page-shell page-shell--wide" data-page="nvd-detail" data-cve-id="{{ vulnerability.cve_id }}"
+     {% if radar_chart %}data-radar-labels="{{ radar_chart['labels']|tojson|forceescape }}" data-radar-values="{{ radar_chart['values']|tojson|forceescape }}"{% endif %}>
 
     <!-- Breadcrumb & Actions -->
     <div class="d-flex justify-content-between align-items-center mb-3 no-print flex-wrap gap-2">
@@ -29,7 +30,7 @@
             <a href="https://www.cve.org/CVERecord?id={{ vulnerability.cve_id }}" target="_blank" rel="noopener" class="btn btn-outline-secondary btn-sm">
                 <i class="fas fa-external-link-alt"></i> MITRE
             </a>
-            <button class="btn btn-outline-secondary btn-sm" onclick="window.print()">
+            <button class="btn btn-outline-secondary btn-sm" type="button" data-action="print-page">
                 <i class="fas fa-print"></i> Imprimir
             </button>
             <a href="{{ url_for('nvd.index') }}" class="btn btn-ghost btn-sm text-muted">
@@ -60,7 +61,7 @@
         <div class="card-body">
             <div class="row align-items-start">
                 <div class="col-lg-9">
-                    <div class="report-header" style="--severity-color: var(--{{ sev_lower }}, var(--gray-500));">
+                    <div class="report-header severity-header-{{ sev_lower }}">
                         <div class="d-flex align-items-center gap-2 mb-2 flex-wrap">
                             <h2 class="mb-0 text-white">{{ vulnerability.cve_id }}</h2>
                             <span class="badge bg-{{ sev_class }} fs-6">{{ sev }}</span>
@@ -790,7 +791,7 @@
                                 <span class="text-white fw-bold">{{ crit_count }}</span>
                             </div>
                             <div class="severity-bar crit-bar">
-                                <div class="fill" style="width: {{ (crit_count / max_count * 100)|round(0, 'floor') }}%;"></div>
+                                <div class="fill w-var" data-progress-width="{{ (crit_count / max_count * 100)|round(0, 'floor') }}%"></div>
                             </div>
                         </div>
                         <div class="mb-2">
@@ -799,7 +800,7 @@
                                 <span class="text-white fw-bold">{{ high_count }}</span>
                             </div>
                             <div class="severity-bar high-bar">
-                                <div class="fill" style="width: {{ (high_count / max_count * 100)|round(0, 'floor') }}%;"></div>
+                                <div class="fill w-var" data-progress-width="{{ (high_count / max_count * 100)|round(0, 'floor') }}%"></div>
                             </div>
                         </div>
                         <div class="mb-2">
@@ -808,7 +809,7 @@
                                 <span class="text-white fw-bold">{{ med_count }}</span>
                             </div>
                             <div class="severity-bar med-bar">
-                                <div class="fill" style="width: {{ (med_count / max_count * 100)|round(0, 'floor') }}%;"></div>
+                                <div class="fill w-var" data-progress-width="{{ (med_count / max_count * 100)|round(0, 'floor') }}%"></div>
                             </div>
                         </div>
                         <div class="mb-3">
@@ -817,7 +818,7 @@
                                 <span class="text-white fw-bold">{{ low_count }}</span>
                             </div>
                             <div class="severity-bar low-bar">
-                                <div class="fill" style="width: {{ (low_count / max_count * 100)|round(0, 'floor') }}%;"></div>
+                                <div class="fill w-var" data-progress-width="{{ (low_count / max_count * 100)|round(0, 'floor') }}%"></div>
                             </div>
                         </div>
 
@@ -1220,314 +1221,8 @@
 {% endblock %}
 
 {% block extra_js %}
-<script nonce="{{ csp_nonce() }}">
-(function () {
-    const cveId = '{{ vulnerability.cve_id }}';
-    const csrfToken = document.querySelector('meta[name="csrf-token"]')?.content || '';
-    const alertBox = document.getElementById('mitigationWorkflowAlert');
-    const submitBtn = document.getElementById('submitMitigationWorkflow');
-    const historyContainer = document.getElementById('mitigationHistoryContainer');
-    const refreshBtn = document.getElementById('refreshHistoryBtn');
-
-    function escapeHtml(value) {
-        return (value || '').replace(/[&<>"']/g, (char) => ({
-            '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
-        }[char]));
-    }
-
-    function showAlert(message, type) {
-        if (!alertBox) return;
-        alertBox.className = `alert alert-${type} py-2 mb-3`;
-        alertBox.textContent = message;
-        alertBox.classList.remove('d-none');
-        setTimeout(() => alertBox.classList.add('d-none'), 6000);
-    }
-
-    // ── Workflow stepper ──────────────────────────────────────────────
-    const stepper = document.getElementById('workflowStepper');
-    const actionInput = document.getElementById('mitigationAction');
-    if (stepper) {
-        stepper.addEventListener('click', (e) => {
-            const pill = e.target.closest('.step-pill');
-            if (!pill) return;
-            stepper.querySelectorAll('.step-pill').forEach(p => p.classList.remove('active'));
-            pill.classList.add('active');
-            if (actionInput) actionInput.value = pill.dataset.action;
-        });
-    }
-
-    // ── Affected assets status filter tabs ────────────────────────────
-    const filterTabs = document.getElementById('assetFilterTabs');
-    const assetTable = document.getElementById('affectedAssetsTable');
-    if (filterTabs && assetTable) {
-        filterTabs.addEventListener('click', (e) => {
-            const btn = e.target.closest('.tab-btn');
-            if (!btn) return;
-            filterTabs.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
-            btn.classList.add('active');
-            const filter = btn.dataset.filter;
-            assetTable.querySelectorAll('tbody tr').forEach(tr => {
-                if (filter === 'ALL') {
-                    tr.style.display = '';
-                } else if (filter === 'OVERDUE') {
-                    tr.style.display = tr.dataset.overdue === 'true' ? '' : 'none';
-                } else {
-                    tr.style.display = tr.dataset.status === filter ? '' : 'none';
-                }
-            });
-        });
-    }
-
-    // ── Affected assets sortable columns ──────────────────────────────
-    if (assetTable) {
-        const CRITICALITY_RANK = { 'CRITICAL': 4, 'HIGH': 3, 'MEDIUM': 2, 'LOW': 1, '': 0 };
-        const headers = assetTable.querySelectorAll('thead th.sortable');
-        headers.forEach((th, colIndex) => {
-            th.addEventListener('click', () => {
-                const type = th.dataset.sortType || 'text';
-                const currentDir = th.classList.contains('sort-asc') ? 'asc'
-                                 : th.classList.contains('sort-desc') ? 'desc'
-                                 : null;
-                const nextDir = currentDir === 'asc' ? 'desc' : 'asc';
-                headers.forEach(h => { h.classList.remove('sort-asc', 'sort-desc'); h.querySelector('.sort-indicator').textContent = '⇅'; });
-                th.classList.add(`sort-${nextDir}`);
-                th.querySelector('.sort-indicator').textContent = nextDir === 'asc' ? '▲' : '▼';
-
-                const tbody = assetTable.querySelector('tbody');
-                const rows = Array.from(tbody.querySelectorAll('tr'));
-                const multiplier = nextDir === 'asc' ? 1 : -1;
-
-                rows.sort((a, b) => {
-                    const av = (a.children[colIndex]?.dataset.sortValue || '').trim();
-                    const bv = (b.children[colIndex]?.dataset.sortValue || '').trim();
-                    if (type === 'number') {
-                        return ((parseFloat(av) || 0) - (parseFloat(bv) || 0)) * multiplier;
-                    }
-                    if (type === 'date') {
-                        // empty dates sort last on asc, first on desc by pushing them
-                        if (!av && !bv) return 0;
-                        if (!av) return 1;
-                        if (!bv) return -1;
-                        return av.localeCompare(bv) * multiplier;
-                    }
-                    if (type === 'criticality') {
-                        return ((CRITICALITY_RANK[av.toUpperCase()] || 0) - (CRITICALITY_RANK[bv.toUpperCase()] || 0)) * multiplier;
-                    }
-                    return av.localeCompare(bv) * multiplier;
-                });
-                rows.forEach(r => tbody.appendChild(r));
-            });
-        });
-    }
-
-    // ── Mitigation history ────────────────────────────────────────────
-    function renderHistory(items) {
-        if (!historyContainer) return;
-        if (!items || items.length === 0) {
-            historyContainer.innerHTML = '<p class="text-muted small mb-0">Nenhum histórico de mitigação registrado.</p>';
-            return;
-        }
-        const html = items.map((item) => {
-            const timestamp = item.timestamp ? new Date(item.timestamp).toLocaleString('pt-BR') : '-';
-            const status = item.status ? `<span class="badge bg-dark border border-secondary text-secondary">${escapeHtml(item.status)}</span>` : '';
-            const effectiveness = item.effectiveness ? `<span class="badge bg-success bg-opacity-25 text-success border border-success border-opacity-25">${escapeHtml(item.effectiveness)}</span>` : '';
-            const source = item.source ? `<span class="badge bg-secondary bg-opacity-25 text-secondary border border-secondary border-opacity-25">${escapeHtml(item.source)}</span>` : '';
-            const user = item.username ? `<span class="badge bg-dark border border-info text-info"><i class="fas fa-user me-1"></i>${escapeHtml(item.username)}</span>` : '';
-            return `<div class="history-entry" data-kind="${escapeHtml(item.kind || '')}">
-                <div class="d-flex justify-content-between align-items-start gap-2">
-                    <div class="flex-grow-1">
-                        <div class="text-white fw-medium small">${escapeHtml(item.title || '')}</div>
-                        ${item.description ? `<div class="text-muted small mt-1">${escapeHtml(item.description)}</div>` : ''}
-                        <div class="mt-1 d-flex flex-wrap gap-2">${status}${effectiveness}${source}${user}</div>
-                    </div>
-                    <span class="text-muted small flex-shrink-0 text-nowrap">
-                        <i class="fas fa-clock me-1"></i>${timestamp}
-                    </span>
-                </div>
-            </div>`;
-        }).join('');
-        historyContainer.innerHTML = `<div class="history-timeline">${html}</div>`;
-    }
-
-    async function refreshHistory() {
-        try {
-            const response = await fetch(`/vulnerabilities/api/${encodeURIComponent(cveId)}/mitigations/history`);
-            if (!response.ok) return;
-            const data = await response.json();
-            renderHistory(data.items || []);
-        } catch (err) { /* best-effort */ }
-    }
-
-    if (refreshBtn) {
-        refreshBtn.addEventListener('click', () => {
-            refreshBtn.disabled = true;
-            refreshHistory().finally(() => { refreshBtn.disabled = false; });
-        });
-    }
-
-    if (submitBtn) {
-        submitBtn.addEventListener('click', async () => {
-            submitBtn.disabled = true;
-            const payload = {
-                action: document.getElementById('mitigationAction')?.value || 'update',
-                asset_vulnerability_id: document.getElementById('mitigationAssetVulnId')?.value || null,
-                type: document.getElementById('mitigationType')?.value || null,
-                effectiveness: document.getElementById('mitigationEffectiveness')?.value || null,
-                due_date: document.getElementById('mitigationDueDate')?.value || null,
-                mitigation_description: document.getElementById('mitigationDescription')?.value || '',
-                notes: document.getElementById('mitigationNotes')?.value || '',
-                source: 'organization'
-            };
-            try {
-                const response = await fetch(`/vulnerabilities/api/${encodeURIComponent(cveId)}/mitigations/workflow`, {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json', 'X-CSRFToken': csrfToken },
-                    body: JSON.stringify(payload)
-                });
-                const data = await response.json();
-                if (!response.ok) {
-                    showAlert(data.error || 'Falha ao atualizar workflow de mitigação.', 'danger');
-                    return;
-                }
-                showAlert('Workflow de mitigação atualizado com sucesso.', 'success');
-                renderHistory(data.history || []);
-                await refreshHistory();
-            } catch (error) {
-                showAlert('Erro de conexão ao atualizar mitigação.', 'danger');
-            } finally {
-                submitBtn.disabled = false;
-            }
-        });
-    }
-
-    // ── Anchor nav active state on scroll ─────────────────────────────
-    const anchors = document.querySelectorAll('.section-anchor-nav a');
-    const sections = Array.from(anchors).map(a => document.querySelector(a.getAttribute('href'))).filter(Boolean);
-    if (sections.length) {
-        const observer = new IntersectionObserver((entries) => {
-            entries.forEach((entry) => {
-                if (entry.isIntersecting) {
-                    const id = entry.target.id;
-                    anchors.forEach(a => {
-                        a.classList.toggle('active', a.getAttribute('href') === `#${id}`);
-                    });
-                }
-            });
-        }, { rootMargin: '-40% 0px -55% 0px', threshold: 0 });
-        sections.forEach(s => observer.observe(s));
-    }
-
-    refreshHistory();
-})();
-</script>
-
 {% if radar_chart %}
 <script nonce="{{ csp_nonce() }}" src="{{ url_for('static', filename='js/vendor/chart.umd.min.js') }}"></script>
-<script nonce="{{ csp_nonce() }}">
-(function () {
-    const radarCanvas = document.getElementById('riskRadarChart');
-    if (!radarCanvas || typeof Chart === 'undefined') return;
-
-    const LABELS = {{ radar_chart['labels']|tojson }};
-    const VALUES = {{ radar_chart['values']|tojson }};
-
-    // Cor do dataset baseada no score máximo (herda paleta de severidade do tema)
-    function severityColor(maxVal) {
-        if (maxVal >= 9)  return { border: '#ef4444', bg: 'rgba(239,68,68,0.18)',  point: '#ef4444' };
-        if (maxVal >= 7)  return { border: '#f97316', bg: 'rgba(249,115,22,0.18)', point: '#f97316' };
-        if (maxVal >= 4)  return { border: '#eab308', bg: 'rgba(234,179,8,0.18)',  point: '#eab308' };
-        return              { border: '#22c55e', bg: 'rgba(34,197,94,0.18)',  point: '#22c55e' };
-    }
-
-    // Ler variáveis CSS do tema (funciona em claro e escuro)
-    function cssVar(name, fallback) {
-        const v = getComputedStyle(document.documentElement).getPropertyValue(name).trim();
-        return v || fallback;
-    }
-
-    function buildChart() {
-        const maxVal = Math.max(...VALUES);
-        const col = severityColor(maxVal);
-
-        const textColor    = cssVar('--text-secondary', '#cbd5e1');
-        const mutedColor   = cssVar('--text-muted',     '#94a3b8');
-        const bgPrimary    = cssVar('--bg-primary',     '#0f172a');
-        const bgSecondary  = cssVar('--bg-secondary',   '#1e293b');
-        const borderColor  = cssVar('--border-color',   'rgba(148,163,184,0.15)');
-
-        return new Chart(radarCanvas, {
-            type: 'radar',
-            data: {
-                labels: LABELS,
-                datasets: [{
-                    label: 'Risk Profile',
-                    data: VALUES,
-                    borderWidth: 2,
-                    borderColor: col.border,
-                    backgroundColor: col.bg,
-                    pointBackgroundColor: col.point,
-                    pointBorderColor: bgPrimary,
-                    pointBorderWidth: 1.5,
-                    pointHoverBackgroundColor: '#fff',
-                    pointHoverBorderColor: col.border,
-                    pointRadius: 4,
-                    pointHoverRadius: 7,
-                    tension: 0.1
-                }]
-            },
-            options: {
-                responsive: true,
-                maintainAspectRatio: false,
-                animation: { duration: 600, easing: 'easeInOutQuart' },
-                scales: {
-                    r: {
-                        min: 0,
-                        max: 10,
-                        ticks: {
-                            stepSize: 2,
-                            color: mutedColor,
-                            backdropColor: 'transparent',
-                            font: { size: 10, family: "'Inter', sans-serif" }
-                        },
-                        grid:        { color: borderColor },
-                        angleLines:  { color: borderColor },
-                        pointLabels: {
-                            color: textColor,
-                            font:  { size: 11, weight: '600', family: "'Inter', sans-serif" }
-                        }
-                    }
-                },
-                plugins: {
-                    legend: { display: false },
-                    tooltip: {
-                        backgroundColor: bgSecondary,
-                        borderColor: borderColor,
-                        borderWidth: 1,
-                        titleColor: textColor,
-                        bodyColor: textColor,
-                        padding: 10,
-                        callbacks: {
-                            title: () => 'Postura de Risco',
-                            label: function(ctx) {
-                                const val = typeof ctx.raw === 'number' ? ctx.raw.toFixed(2) : ctx.raw;
-                                const bar = '█'.repeat(Math.round(ctx.raw)) + '░'.repeat(10 - Math.round(ctx.raw));
-                                return ` ${ctx.label}: ${val}/10  ${bar}`;
-                            }
-                        }
-                    }
-                }
-            }
-        });
-    }
-
-    let chartInstance = buildChart();
-
-    // Recriar o chart quando o tema mudar (claro ↔ escuro)
-    document.addEventListener('themechange', function() {
-        if (chartInstance) { chartInstance.destroy(); }
-        chartInstance = buildChart();
-    });
-})();
-</script>
 {% endif %}
+<script src="{{ url_for('static', filename='js/pages/nvd/detail.js') }}" defer></script>
 {% endblock %}

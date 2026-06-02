@@ -13,6 +13,7 @@ logger = logging.getLogger(__name__)
 from app.models.system import SyncMetadata
 from app.extensions import db
 from app.forms.auth_forms import ProfileForm, ChangePasswordForm, ApiKeyForm, TacacsConfigForm
+from app.utils.security import admin_required
 
 
 core_bp = Blueprint('core', __name__)
@@ -101,6 +102,75 @@ def health_check():
 def about():
     """Página sobre o sistema."""
     return render_template('pages/about.html')
+
+
+@core_bp.route('/settings/api/openai-key', methods=['GET'])
+@core_bp.route('/api/v1/admin/openai-key', methods=['GET'])
+@login_required
+@admin_required
+def openai_key_status():
+    """Admin API: return masked OpenAI key status only."""
+    from app.services.core.openai_config_service import OpenAIConfigService
+    return jsonify(OpenAIConfigService.status())
+
+
+@core_bp.route('/settings/api/openai-key', methods=['POST'])
+@core_bp.route('/api/v1/admin/openai-key', methods=['POST'])
+@login_required
+@admin_required
+def openai_key_save():
+    """Admin API: save/update encrypted OpenAI key."""
+    from app.services.core.openai_config_service import OpenAIConfigService
+
+    payload = request.get_json(silent=True) or {}
+    api_key = (payload.get('api_key') or '').strip()
+    try:
+        status = OpenAIConfigService.save_key(api_key)
+        return jsonify({
+            'message': 'Chave OpenAI salva com sucesso.',
+            'status': status,
+        })
+    except ValueError as exc:
+        return jsonify({'error': str(exc)}), 400
+    except Exception:
+        logger.exception('OpenAI key save failed')
+        return jsonify({'error': 'Erro ao salvar chave OpenAI.'}), 500
+
+
+@core_bp.route('/settings/api/openai-key/test', methods=['POST'])
+@core_bp.route('/api/v1/admin/openai-key/test', methods=['POST'])
+@login_required
+@admin_required
+def openai_key_test():
+    """Admin API: test configured OpenAI key or supplied unsaved key."""
+    from app.services.core.openai_config_service import OpenAIConfigService
+
+    payload = request.get_json(silent=True) or {}
+    api_key = (payload.get('api_key') or '').strip() or None
+    if api_key and not OpenAIConfigService.validate_key_format(api_key):
+        return jsonify({
+            'ok': False,
+            'message': 'Formato de chave OpenAI inválido.',
+        }), 400
+
+    result = OpenAIConfigService.test_connection(api_key)
+    status_code = 200 if result.get('ok') else 400
+    return jsonify(result), status_code
+
+
+@core_bp.route('/settings/api/openai-key', methods=['DELETE'])
+@core_bp.route('/api/v1/admin/openai-key', methods=['DELETE'])
+@login_required
+@admin_required
+def openai_key_delete():
+    """Admin API: remove encrypted OpenAI key stored in DB."""
+    from app.services.core.openai_config_service import OpenAIConfigService
+
+    status = OpenAIConfigService.remove_key()
+    return jsonify({
+        'message': 'Chave OpenAI removida do armazenamento interno.',
+        'status': status,
+    })
 
 
 @core_bp.route('/settings', methods=['GET', 'POST'])
@@ -282,6 +352,7 @@ def settings():
             api_key_form=api_key_form,
             active_tab='tacacs',
             **tacacs_ctx,
+            **_build_openai_context(),
         )
 
     # Fallback — unknown submit button
@@ -297,6 +368,7 @@ def _render_settings(profile_form, password_form, api_key_form, active_tab='prof
         api_key_form=api_key_form,
         active_tab=active_tab,
         **_build_tacacs_context(),
+        **_build_openai_context(),
     )
 
 
@@ -319,4 +391,12 @@ def _build_tacacs_context():
         'tacacs_config':      cfg,
         'tacacs_dependency':  TacacsService.dependency_status(),
         'tacacs_last_test':   TacacsService.last_test_status(),
+    }
+
+
+def _build_openai_context():
+    """OpenAI admin configuration status for the settings template."""
+    from app.services.core.openai_config_service import OpenAIConfigService
+    return {
+        'openai_config': OpenAIConfigService.status(),
     }

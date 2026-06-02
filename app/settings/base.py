@@ -118,6 +118,8 @@ class BaseConfig:
     OPENAI_MODEL      = os.environ.get('OPENAI_MODEL',  'gpt-4o-mini')
     OPENAI_MAX_TOKENS = int(os.environ.get('OPENAI_MAX_TOKENS', 2048))
     OPENAI_TEMPERATURE = float(os.environ.get('OPENAI_TEMPERATURE', 0.7))
+    OPENAI_TIMEOUT = float(os.environ.get('OPENAI_TIMEOUT', 30))
+    OPENAI_MAX_RETRIES = int(os.environ.get('OPENAI_MAX_RETRIES', 2))
     
     # Email (SMTP)
     MAIL_SERVER = os.environ.get('MAIL_SERVER', 'smtp.gmail.com')

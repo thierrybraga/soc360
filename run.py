@@ -65,10 +65,10 @@ def validate_config(logger) -> bool:
     
     # Warn about insecure settings in production
     if os.getenv('FLASK_DEBUG') == '1' or os.getenv('FLASK_ENV') == 'development':
-        logger.warning("⚠️  Running in DEBUG/development mode - NOT suitable for production")
+        logger.warning("WARNING: Running in DEBUG/development mode - NOT suitable for production")
     
     if not parse_bool_env(os.getenv('SESSION_COOKIE_SECURE'), default=False):
-        logger.warning("⚠️  SESSION_COOKIE_SECURE is not enabled - cookies may be sent over HTTP")
+        logger.warning("WARNING: SESSION_COOKIE_SECURE is not enabled - cookies may be sent over HTTP")
     
     return True
 
@@ -116,7 +116,7 @@ def main():
     # Development server warning
     if debug and 'werkzeug' in sys.modules:
         logger.warning(
-            "⚠️  Using Flask development server. For production, use: "
+            "WARNING: Using Flask development server. For production, use: "
             "gunicorn --bind 0.0.0.0:5000 --workers 4 app:create_app"
         )
     
@@ -125,7 +125,7 @@ def main():
         extra={"host": host, "port": port, "debug": debug, "env": os.getenv('FLASK_ENV')}
     )
     
-    # ⚠️  NOTE: app.run() is ONLY for development
+    # NOTE: app.run() is ONLY for development
     # For production, use Gunicorn via Docker CMD or systemd
     app.run(host=host, port=port, debug=debug, use_reloader=debug)
 

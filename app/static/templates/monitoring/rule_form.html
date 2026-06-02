@@ -106,7 +106,7 @@
                         <input type="hidden" id="rule-type" value="{{ rule.rule_type if rule else '' }}">
 
                         <!-- Severity Options -->
-                        <div class="config-section mt-3" id="severity-options" style="display: none;">
+                        <div class="config-section mt-3 is-hidden" id="severity-options">
                             <h6 class="text-white fw-bold mb-2">Severity Settings</h6>
                             <div class="mb-0">
                                 <label class="form-label">Minimum Severity</label>
@@ -120,7 +120,7 @@
                         </div>
 
                         <!-- Vendor Options -->
-                        <div class="config-section mt-3" id="vendor-options" style="display: none;">
+                        <div class="config-section mt-3 is-hidden" id="vendor-options">
                             <h6 class="text-white fw-bold mb-2">Vendor Settings</h6>
                             <div class="row g-3">
                                 <div class="col-md-6">
@@ -171,7 +171,7 @@
                         <input type="hidden" id="rule-channel" value="">
 
                         <!-- Email Config -->
-                        <div class="config-section mt-3" id="email-options" style="display: none;">
+                        <div class="config-section mt-3 is-hidden" id="email-options">
                             <h6 class="text-white fw-bold mb-2">Email Settings</h6>
                             <div class="mb-0">
                                 <label class="form-label required">Recipients</label>
@@ -182,7 +182,7 @@
                         </div>
 
                         <!-- Webhook Config -->
-                        <div class="config-section mt-3" id="webhook-options" style="display: none;">
+                        <div class="config-section mt-3 is-hidden" id="webhook-options">
                             <h6 class="text-white fw-bold mb-2">Webhook Settings</h6>
                             <div class="mb-0">
                                 <label class="form-label required">Webhook URL</label>
@@ -192,7 +192,7 @@
                         </div>
 
                         <!-- Slack Config -->
-                        <div class="config-section mt-3" id="slack-options" style="display: none;">
+                        <div class="config-section mt-3 is-hidden" id="slack-options">
                             <h6 class="text-white fw-bold mb-2">Slack Settings</h6>
                             <div class="mb-3">
                                 <label class="form-label required">Slack Webhook URL</label>
@@ -285,17 +285,11 @@
         </div>
     </form>
 </div>
+{% if rule %}
+<div id="rule-data" class="is-hidden" data-rule="{{ rule.to_dict()|tojson|forceescape }}"></div>
+{% endif %}
 {% endblock %}
 
 {% block extra_js %}
 <script src="{{ url_for('static', filename='js/pages/monitoring/rule_form.js') }}"></script>
-{% if rule %}
-<script nonce="{{ csp_nonce() }}">
-    document.addEventListener('DOMContentLoaded', () => {
-        if (window.ruleFormModule) {
-            window.ruleFormModule.loadRuleData({{ rule.to_dict()|tojson }});
-        }
-    });
-</script>
-{% endif %}
 {% endblock %}

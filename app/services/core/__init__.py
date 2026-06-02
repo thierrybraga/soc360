@@ -8,12 +8,14 @@ except ImportError:
 
 try:
     from .openai_service import OpenAIService
+    from .openai_config_service import OpenAIConfigService
 except ImportError:
     OpenAIService = None
+    OpenAIConfigService = None
 
 try:
     from .rag_service import RAGService
 except ImportError:
     RAGService = None
 
-__all__ = ['RedisCacheService', 'EmailService', 'OpenAIService', 'RAGService']
+__all__ = ['RedisCacheService', 'EmailService', 'OpenAIService', 'OpenAIConfigService', 'RAGService']

@@ -190,7 +190,7 @@
             <div class="top-bar-actions">
                 <button class="icon-btn" id="notificationsBtn" title="Notificações">
                     <i class="fas fa-bell"></i>
-                    <span class="badge-dot" id="notificationDot" style="display: none;"></span>
+                    <span class="badge-dot is-hidden" id="notificationDot"></span>
                 </button>
                 
                 <button class="icon-btn" id="themeToggle" data-theme-toggle title="Alternar tema">
@@ -226,9 +226,9 @@
     {% block modals %}{% endblock %}
 
     <!-- Loading Overlay -->
-    <div class="loading-overlay" id="loadingOverlay" style="display: none;">
+    <div class="loading-overlay is-hidden" id="loadingOverlay" aria-hidden="true">
         <div class="spinner"></div>
-        <span>Carregando...</span>
+        <span class="loading-text">Carregando...</span>
     </div>
     
     <!-- Toast Container -->

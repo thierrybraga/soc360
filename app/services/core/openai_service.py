@@ -1,10 +1,18 @@
 # app/services/core/openai_service.py
 
-import os
 import logging
 from typing import List, Dict, Any, Optional
-from openai import OpenAI
+from openai import (
+    APIConnectionError,
+    APIError,
+    APITimeoutError,
+    AuthenticationError,
+    OpenAI,
+    RateLimitError,
+)
 from flask import current_app
+
+from app.services.core.openai_config_service import OpenAIConfigService
 
 logger = logging.getLogger(__name__)
 
@@ -20,7 +28,7 @@ class OpenAIService:
         """
         Inicializa o servico OpenAI com configuracoes da aplicacao.
         """
-        self.api_key = current_app.config.get('OPENAI_API_KEY')
+        self.api_key = OpenAIConfigService.get_runtime_key()
         self.model = current_app.config.get('OPENAI_MODEL', 'gpt-3.5-turbo')
         self.max_tokens = current_app.config.get('OPENAI_MAX_TOKENS', 1000)
         self.temperature = current_app.config.get('OPENAI_TEMPERATURE', 0.7)
@@ -30,10 +38,14 @@ class OpenAIService:
             self.client = None
         else:
             try:
-                self.client = OpenAI(api_key=self.api_key)
+                self.client = OpenAI(
+                    api_key=self.api_key,
+                    timeout=float(current_app.config.get('OPENAI_TIMEOUT', 30)),
+                    max_retries=int(current_app.config.get('OPENAI_MAX_RETRIES', 2)),
+                )
                 logger.info(f"OpenAI Service inicializado com modelo: {self.model}")
             except Exception as e:
-                logger.warning(f"Erro ao inicializar OpenAI client: {e} - modo demo ativo")
+                logger.warning("Erro ao inicializar OpenAI client (%s) - modo demo ativo", e.__class__.__name__)
                 self.client = None
 
     def generate_chat_response(
@@ -63,13 +75,33 @@ class OpenAIService:
                 temperature=self.temperature
             )
 
-            assistant_message = response.choices[0].message.content
+            assistant_message = (response.choices[0].message.content or '').strip()
+            if not assistant_message:
+                logger.warning("OpenAI retornou resposta vazia - usando modo demo")
+                return self._generate_demo_response(user_message, context)
 
-            logger.info(f"Resposta gerada com sucesso. Tokens usados: {response.usage.total_tokens}")
+            usage = getattr(response, 'usage', None)
+            total_tokens = getattr(usage, 'total_tokens', None)
+            logger.info("Resposta OpenAI gerada com sucesso. Tokens usados: %s", total_tokens)
             return assistant_message
 
+        except AuthenticationError:
+            logger.error("Erro de autenticacao OpenAI - usando modo demo")
+            return self._generate_demo_response(user_message, context)
+        except RateLimitError:
+            logger.error("Rate limit OpenAI atingido - usando modo demo")
+            return self._generate_demo_response(user_message, context)
+        except APITimeoutError:
+            logger.error("Timeout OpenAI - usando modo demo")
+            return self._generate_demo_response(user_message, context)
+        except APIConnectionError:
+            logger.error("Erro de rede OpenAI - usando modo demo")
+            return self._generate_demo_response(user_message, context)
+        except APIError as e:
+            logger.error("Erro API OpenAI status=%s - usando modo demo", getattr(e, 'status_code', 'unknown'))
+            return self._generate_demo_response(user_message, context)
         except Exception as e:
-            logger.error(f"Erro ao gerar resposta OpenAI: {str(e)} - usando modo demo")
+            logger.error("Erro ao gerar resposta OpenAI (%s) - usando modo demo", e.__class__.__name__)
             return self._generate_demo_response(user_message, context)
 
     def _build_messages(
@@ -154,7 +186,7 @@ Por favor, forneca:
             return self.generate_chat_response(prompt)
 
         except Exception as e:
-            logger.error(f"Erro ao gerar resumo CVE: {str(e)}")
+            logger.error("Erro ao gerar resumo CVE: %s", e.__class__.__name__)
             return "Erro ao gerar resumo da vulnerabilidade."
 
     def _format_cve_data(self, cve_data: Dict[str, Any]) -> str:
@@ -201,13 +233,7 @@ Patch Disponivel: {'Sim' if cve_data.get('patch_available') else 'Nao'}
             logger.warning("OpenAI client nao inicializado")
             return False
 
-        try:
-            response = self.client.chat.completions.create(
-                model=self.model,
-                messages=[{"role": "user", "content": "Hello"}],
-                max_tokens=5
-            )
-            return True
-        except Exception as e:
-            logger.error(f"API OpenAI nao esta acessivel: {str(e)}")
-            return False
+        result = OpenAIConfigService.test_connection(self.api_key)
+        if not result.get('ok'):
+            logger.error("API OpenAI nao esta acessivel: %s", result.get('message'))
+        return bool(result.get('ok'))

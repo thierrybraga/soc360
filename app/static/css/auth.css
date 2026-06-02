@@ -218,6 +218,12 @@
     transition: width 0.3s ease, background-color 0.3s ease;
 }
 
+.strength-fill--1 { width: 20%; }
+.strength-fill--2 { width: 40%; }
+.strength-fill--3 { width: 60%; }
+.strength-fill--4 { width: 80%; }
+.strength-fill--5 { width: 100%; }
+
 .strength-info {
     display: flex;
     flex-direction: column;

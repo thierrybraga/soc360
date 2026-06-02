@@ -15,43 +15,16 @@
             
             <div id="sync-status" class="mt-4">
                 <div class="progress mb-2">
-                    <div id="sync-progress-bar" class="progress-bar progress-bar-striped progress-bar-animated" role="progressbar" style="width: 0%"></div>
+                    <div id="sync-progress-bar" class="progress-bar progress-bar-striped progress-bar-animated w-var" role="progressbar"></div>
                 </div>
                 <small id="sync-message" class="text-muted">Iniciando...</small>
             </div>
         </div>
     </div>
 </div>
+{% endblock %}
 
 {% block extra_js %}
 {{ super() }}
-<script nonce="{{ csp_nonce() }}">
-    // Polling for sync status
-    function checkSyncStatus() {
-        fetch('/vulnerabilities/api/sync/status')
-            .then(response => response.json())
-            .then(data => {
-                if (data.status === 'completed' || data.status === 'idle') {
-                    window.location.href = "{{ url_for('core.dashboard') }}";
-                } else {
-                    const current = data.processed_cves || 0;
-                    const total = data.total_cves || 1;
-                    const progress = (current / total) * 100;
-                    
-                    document.getElementById('sync-progress-bar').style.width = progress + '%';
-                    document.getElementById('sync-message').innerText = `Processando: ${current} / ${total}`;
-                    setTimeout(checkSyncStatus, 2000);
-                }
-            })
-            .catch(err => {
-                console.error('Error checking sync status:', err);
-                setTimeout(checkSyncStatus, 5000);
-            });
-    }
-    
-    // Start polling
-    checkSyncStatus();
-</script>
-{% endblock %}
-
+<script src="{{ url_for('static', filename='js/pages/loading.js') }}" defer></script>
 {% endblock %}

@@ -41,9 +41,9 @@
                     <td>{{ rule.vendor or '-' }}</td>
                     <td>{{ rule.search_term or '-' }}</td>
                     <td>
-                        <form method="POST" action="{{ url_for('monitoring.delete_monitoring_rule', rule_id=rule.id) }}" style="display:inline;">
+                        <form method="POST" action="{{ url_for('monitoring.delete_monitoring_rule', rule_id=rule.id) }}" class="d-inline" data-confirm="Deseja realmente excluir esta regra?">
                             {{ delete_form.csrf_token }}
-                            <button type="submit" class="btn btn-danger btn-sm" onclick="return confirm('Deseja realmente excluir esta regra?');">
+                            <button type="submit" class="btn btn-danger btn-sm">
                                 Excluir
                             </button>
                         </form>

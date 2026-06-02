@@ -9,14 +9,15 @@ document.addEventListener('DOMContentLoaded', function() {
     // =========================================================================
     // Password Visibility Toggle
     // =========================================================================
-    const toggleButtons = document.querySelectorAll('.toggle-password');
+    const toggleButtons = document.querySelectorAll('.toggle-password, .toggle-password-btn');
     
     toggleButtons.forEach(button => {
         button.addEventListener('click', function() {
-            const container = this.closest('.password-input');
-            if (!container) return;
-            
-            const input = container.querySelector('input');
+            const targetId = this.dataset.target;
+            const container = this.closest('.password-input, .password-input-wrapper');
+            const input = targetId
+                ? document.getElementById(targetId)
+                : container?.querySelector('input');
             if (!input) return;
             
             const icon = this.querySelector('i');
@@ -84,15 +85,31 @@ document.addEventListener('DOMContentLoaded', function() {
                 strengthClass = 'strong';
             }
             
-            strengthDiv.innerHTML = `
-                <div class="strength-bar ${strengthClass}">
-                    <div class="strength-fill" style="width: ${strength * 20}%"></div>
-                </div>
-                <div class="strength-info">
-                    <span class="strength-text ${strengthClass}">${strengthText}</span>
-                    ${feedback.length > 0 && strength < 5 ? `<span class="strength-feedback">Falta: ${feedback.join(', ')}</span>` : ''}
-                </div>
-            `;
+            strengthDiv.innerHTML = '';
+
+            const bar = document.createElement('div');
+            bar.className = `strength-bar ${strengthClass}`;
+
+            const fill = document.createElement('div');
+            fill.className = `strength-fill strength-fill--${strength}`;
+            bar.appendChild(fill);
+
+            const info = document.createElement('div');
+            info.className = 'strength-info';
+
+            const label = document.createElement('span');
+            label.className = `strength-text ${strengthClass}`;
+            label.textContent = strengthText;
+            info.appendChild(label);
+
+            if (feedback.length > 0 && strength < 5) {
+                const feedbackEl = document.createElement('span');
+                feedbackEl.className = 'strength-feedback';
+                feedbackEl.textContent = `Falta: ${feedback.join(', ')}`;
+                info.appendChild(feedbackEl);
+            }
+
+            strengthDiv.append(bar, info);
         });
     }
 

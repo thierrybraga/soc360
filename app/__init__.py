@@ -31,6 +31,7 @@ def create_app(config_name: str | dict | None = None) -> Flask:
         template_folder='static/templates',
         static_folder='static'
     )
+    os.makedirs(app.instance_path, exist_ok=True)
     
     # Carregar configuração
     if isinstance(config_name, dict):

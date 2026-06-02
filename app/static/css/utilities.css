@@ -29,6 +29,8 @@
 .d-flex { display: flex !important; }
 .d-inline-flex { display: inline-flex !important; }
 .d-grid { display: grid !important; }
+.is-hidden { display: none; }
+.is-invisible { visibility: hidden; }
 
 /* Flexbox utilities */
 .flex-row { flex-direction: row !important; }
@@ -120,6 +122,15 @@
 .w-75 { width: 75% !important; }
 .w-100 { width: 100% !important; }
 .w-auto { width: auto !important; }
+.w-var { width: var(--progress-width, auto) !important; }
+.h-full { height: 100% !important; }
+
+.tone-primary { color: var(--primary-500) !important; }
+.tone-success { color: var(--success) !important; }
+.tone-info { color: var(--info) !important; }
+.tone-warning { color: var(--warning) !important; }
+.tone-danger { color: var(--danger) !important; }
+.tone-muted { color: var(--text-muted) !important; }
 
 .h-25 { height: 25% !important; }
 .h-50 { height: 50% !important; }

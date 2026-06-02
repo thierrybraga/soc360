@@ -5,7 +5,7 @@
   </span>
 {% endmacro %}
 
-{% macro render_pagination(pagination, endpoint, **kwargs) %}
+{% macro render_pagination(pagination, endpoint) %}
   {% if pagination.pages > 1 %}
     <nav aria-label="Paginação" class="pagination-nav">
       <div class="pagination-info">
@@ -94,7 +94,7 @@
       <div class="pagination-controls">
         <div class="d-flex align-items-center gap-2">
           <label for="per-page-select" class="form-label mb-0 text-sm">Itens por página:</label>
-          <select id="per-page-select" class="form-select form-select-sm" style="width: auto;" onchange="changePerPage(this.value)">
+          <select id="per-page-select" class="form-select form-select-sm w-auto" data-pagination-per-page>
             <option value="10" {{ 'selected' if pagination.per_page == 10 }}>10</option>
             <option value="20" {{ 'selected' if pagination.per_page == 20 }}>20</option>
             <option value="50" {{ 'selected' if pagination.per_page == 50 }}>50</option>
@@ -103,15 +103,6 @@
         </div>
       </div>
     </nav>
-    
-    <script nonce="{{ csp_nonce() }}">
-      function changePerPage(perPage) {
-        const url = new URL(window.location);
-        url.searchParams.set('per_page', perPage);
-        url.searchParams.set('page', 1); // Reset to first page
-        window.location.href = url.toString();
-      }
-    </script>
   {% endif %}
 {% endmacro %}
 

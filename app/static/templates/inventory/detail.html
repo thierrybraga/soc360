@@ -7,7 +7,8 @@
 {% endblock %}
 
 {% block content %}
-<div class="page-shell page-shell--wide" data-page="asset-detail" data-asset-id="{{ asset.id }}">
+<div class="page-shell page-shell--wide" data-page="asset-detail" data-asset-id="{{ asset.id }}"
+     {% if radar_chart %}data-radar-labels="{{ radar_chart['labels']|tojson|forceescape }}" data-radar-values="{{ radar_chart['values']|tojson|forceescape }}"{% endif %}>
 
     {# ------------------------------------------------------------------ #}
     {# PAGE HEADER                                                         #}
@@ -82,7 +83,7 @@
         <div class="alert alert-success d-flex align-items-center gap-2" role="alert">
             <i class="fas fa-check-circle"></i>
             <span id="correlate-msg"></span>
-            <button type="button" class="btn-close ms-auto" onclick="document.getElementById('correlate-toast').style.display='none'"></button>
+            <button type="button" class="btn-close ms-auto" data-action="hide-target" data-target="#correlate-toast" aria-label="Fechar"></button>
         </div>
     </div>
 
@@ -310,14 +311,13 @@
                     <div class="mb-3">
                         <div class="d-flex justify-content-between mb-1">
                             <span class="bia-score-label">BIA Score</span>
-                            <span class="bia-score-value" style="color:{% if bia >= 70 %}var(--danger){% elif bia >= 40 %}var(--warning){% else %}var(--success){% endif %};">
+                            <span class="bia-score-value {% if bia >= 70 %}tone-danger{% elif bia >= 40 %}tone-warning{% else %}tone-success{% endif %}">
                                 {{ bia }}/100
                             </span>
                         </div>
                         <div class="bia-progress-track">
-                            <div style="width:{{ bia }}%; height:100%; border-radius:9px;
-                                background:{% if bia >= 70 %}var(--danger){% elif bia >= 40 %}var(--warning){% else %}var(--success){% endif %};
-                                transition:width .6s ease;"></div>
+                            <div class="bia-progress-fill bia-progress-fill--{% if bia >= 70 %}danger{% elif bia >= 40 %}warning{% else %}success{% endif %} w-var h-full"
+                                 data-progress-width="{{ bia }}%"></div>
                         </div>
                     </div>
 
@@ -325,7 +325,7 @@
                         {% if asset.rto_hours is not none %}
                         <div class="col-sm-4">
                             <div class="p-2 rounded text-center bia-stat-card">
-                                <div class="bia-stat-value" style="color:var(--primary-500);">
+                                <div class="bia-stat-value tone-primary">
                                     {{ asset.rto_hours }}h
                                 </div>
                                 <small class="text-muted">RTO</small>
@@ -335,7 +335,7 @@
                         {% if asset.rpo_hours is not none %}
                         <div class="col-sm-4">
                             <div class="p-2 rounded text-center bia-stat-card">
-                                <div class="bia-stat-value" style="color:var(--warning);">
+                                <div class="bia-stat-value tone-warning">
                                     {{ asset.rpo_hours }}h
                                 </div>
                                 <small class="text-muted">RPO</small>
@@ -345,7 +345,7 @@
                         {% if asset.operational_cost_per_hour is not none %}
                         <div class="col-sm-4">
                             <div class="p-2 rounded text-center bia-stat-card">
-                                <div class="bia-stat-value" style="color:var(--danger);">
+                                <div class="bia-stat-value tone-danger">
                                     ${{ '{:,.0f}'.format(asset.operational_cost_per_hour) }}
                                 </div>
                                 <small class="text-muted">Custo/hora</small>
@@ -412,13 +412,13 @@
                                         </span>
                                     </td>
                                     {# CVSS score #}
-                                    <td class="vuln-td vuln-td--center fw-bold" style="color:{% if row.cvss_score and row.cvss_score >= 9 %}var(--danger){% elif row.cvss_score and row.cvss_score >= 7 %}var(--warning){% elif row.cvss_score and row.cvss_score >= 4 %}var(--info){% else %}var(--success){% endif %};">
+                                    <td class="vuln-td vuln-td--center fw-bold {% if row.cvss_score and row.cvss_score >= 9 %}tone-danger{% elif row.cvss_score and row.cvss_score >= 7 %}tone-warning{% elif row.cvss_score and row.cvss_score >= 4 %}tone-info{% else %}tone-success{% endif %}">
                                         {{ '%.1f'|format(row.cvss_score) if row.cvss_score is not none else '—' }}
                                     </td>
                                     {# Contextual risk #}
                                     <td class="vuln-td vuln-td--center small">
                                         {% if row.contextual_risk is not none %}
-                                        <span class="fw-bold" style="color:{% if row.contextual_risk >= 8 %}var(--danger){% elif row.contextual_risk >= 6 %}var(--warning){% else %}var(--info){% endif %};">
+                                        <span class="fw-bold {% if row.contextual_risk >= 8 %}tone-danger{% elif row.contextual_risk >= 6 %}tone-warning{% else %}tone-info{% endif %}">
                                             {{ '%.1f'|format(row.contextual_risk) }}
                                         </span>
                                         {% else %}
@@ -524,7 +524,7 @@
                     {% if count > 0 or sev in ['CRITICAL', 'HIGH', 'MEDIUM', 'LOW'] %}
                     <div class="mb-2">
                         <div class="d-flex justify-content-between align-items-center mb-1">
-                            <span class="sev-label" style="color:{{ color }};">
+                            <span class="sev-label {{ 'tone-danger' if sev in ['CRITICAL', 'HIGH'] else 'tone-warning' if sev == 'MEDIUM' else 'tone-info' if sev == 'LOW' else 'tone-muted' }}">
                                 {% if sev == 'CRITICAL' %}<i class="fas fa-fire me-1"></i>
                                 {% elif sev == 'HIGH' %}<i class="fas fa-triangle-exclamation me-1"></i>
                                 {% elif sev == 'MEDIUM' %}<i class="fas fa-circle-exclamation me-1"></i>
@@ -535,8 +535,8 @@
                             <span class="sev-count">{{ count }}</span>
                         </div>
                         <div class="sev-bar-track">
-                            <div style="width:{{ ((count / sev_total) * 100)|round(1) }}%; height:100%;
-                                        background:{{ color }}; border-radius:9px; transition:width .5s ease;"></div>
+                            <div class="sev-bar-fill sev-bar-fill--{{ sev|lower }} w-var h-full"
+                                 data-progress-width="{{ ((count / sev_total) * 100)|round(1) }}%"></div>
                         </div>
                     </div>
                     {% endif %}
@@ -546,7 +546,7 @@
                     {% if asset.risk_score %}
                     <div class="border-top pt-3 mt-3 text-center">
                         <span class="text-muted detail-label">Risk Score Máximo</span>
-                        <div class="risk-score-value" style="color:{% if asset.risk_score >= 8 %}var(--danger){% elif asset.risk_score >= 6 %}var(--warning){% else %}var(--info){% endif %};">
+                        <div class="risk-score-value {% if asset.risk_score >= 8 %}tone-danger{% elif asset.risk_score >= 6 %}tone-warning{% else %}tone-info{% endif %}">
                             {{ asset.risk_score }}
                         </div>
                     </div>
@@ -575,7 +575,7 @@
                     {% if cnt > 0 %}
                     <div class="d-flex justify-content-between align-items-center py-1 list-row-bordered">
                         <span class="small text-secondary">{{ st_label }}</span>
-                        <span class="badge status-cnt-badge" style="color:{{ st_color }};">
+                        <span class="badge status-cnt-badge {{ 'tone-danger' if status == 'OPEN' else 'tone-warning' if status == 'IN_PROGRESS' else 'tone-success' if status in ['MITIGATED', 'RESOLVED'] else 'tone-muted' }}">
                             {{ cnt }}
                         </span>
                     </div>
@@ -637,173 +637,10 @@
 {# ------------------------------------------------------------------ #}
 {% if radar_chart %}
 <script nonce="{{ csp_nonce() }}" src="{{ url_for('static', filename='js/vendor/chart.umd.min.js') }}"></script>
-<script nonce="{{ csp_nonce() }}">
-(function () {
-    'use strict';
-
-    const RADAR_LABELS = {{ radar_chart['labels']|tojson }};
-    const RADAR_VALUES = {{ radar_chart['values']|tojson }};
-
-    function cssVar(name, fallback) {
-        const v = getComputedStyle(document.documentElement).getPropertyValue(name).trim();
-        return v || fallback;
-    }
-
-    function maxColor(maxVal) {
-        if (maxVal >= 8) return { border: '#ef4444', bg: 'rgba(239,68,68,0.15)',  point: '#ef4444' };
-        if (maxVal >= 6) return { border: '#f97316', bg: 'rgba(249,115,22,0.15)', point: '#f97316' };
-        if (maxVal >= 4) return { border: '#eab308', bg: 'rgba(234,179,8,0.15)',  point: '#eab308' };
-        return              { border: '#22c55e', bg: 'rgba(34,197,94,0.15)',   point: '#22c55e' };
-    }
-
-    function buildRadar() {
-        const canvas = document.getElementById('assetRiskRadar');
-        if (!canvas || typeof Chart === 'undefined') return null;
-
-        const maxVal  = Math.max(...RADAR_VALUES);
-        const col     = maxColor(maxVal);
-        const textClr = cssVar('--text-secondary', '#94a3b8');
-        const mutedClr= cssVar('--text-muted',     '#64748b');
-        const bgSec   = cssVar('--bg-secondary',   '#1e293b');
-        const border  = cssVar('--border-color',   'rgba(148,163,184,0.15)');
-        const bgPrim  = cssVar('--bg-primary',     '#0f172a');
-
-        return new Chart(canvas, {
-            type: 'radar',
-            data: {
-                labels: RADAR_LABELS,
-                datasets: [{
-                    label: 'Perfil de Risco',
-                    data: RADAR_VALUES,
-                    borderWidth: 2,
-                    borderColor: col.border,
-                    backgroundColor: col.bg,
-                    pointBackgroundColor: col.point,
-                    pointBorderColor: bgPrim,
-                    pointBorderWidth: 1.5,
-                    pointHoverBackgroundColor: '#fff',
-                    pointHoverBorderColor: col.border,
-                    pointRadius: 4,
-                    pointHoverRadius: 7,
-                    tension: 0.1
-                }]
-            },
-            options: {
-                responsive: true,
-                maintainAspectRatio: false,
-                animation: { duration: 600, easing: 'easeInOutQuart' },
-                scales: {
-                    r: {
-                        min: 0, max: 10,
-                        ticks: {
-                            stepSize: 2,
-                            color: mutedClr,
-                            backdropColor: 'transparent',
-                            font: { size: 9, family: "'Inter', sans-serif" }
-                        },
-                        grid:        { color: border },
-                        angleLines:  { color: border },
-                        pointLabels: {
-                            color: textClr,
-                            font: { size: 10, weight: '600', family: "'Inter', sans-serif" }
-                        }
-                    }
-                },
-                plugins: {
-                    legend: { display: false },
-                    tooltip: {
-                        backgroundColor: bgSec,
-                        borderColor: border,
-                        borderWidth: 1,
-                        titleColor: textClr,
-                        bodyColor: textClr,
-                        padding: 10,
-                        callbacks: {
-                            title: () => 'Risco do Ativo',
-                            label: function (ctx) {
-                                const val = typeof ctx.raw === 'number' ? ctx.raw.toFixed(1) : ctx.raw;
-                                const filled = '█'.repeat(Math.round(ctx.raw));
-                                const empty  = '░'.repeat(10 - Math.round(ctx.raw));
-                                return ` ${ctx.label}: ${val}/10  ${filled}${empty}`;
-                            }
-                        }
-                    }
-                }
-            }
-        });
-    }
-
-    let radarInstance = buildRadar();
-    document.addEventListener('themechange', function () {
-        if (radarInstance) { radarInstance.destroy(); }
-        radarInstance = buildRadar();
-    });
-})();
-</script>
 {% endif %}
 
 {# ------------------------------------------------------------------ #}
 {# CVE CORRELATION — AJAX                                             #}
 {# ------------------------------------------------------------------ #}
-<script nonce="{{ csp_nonce() }}">
-(function () {
-    'use strict';
-
-    const ASSET_ID = {{ asset.id }};
-
-    function correlate(btn) {
-        if (!btn) return;
-        const originalHTML = btn.innerHTML;
-        btn.disabled = true;
-        btn.innerHTML = '<i class="fas fa-spinner fa-spin me-1"></i>Correlacionando…';
-
-        const csrfToken = (document.querySelector('meta[name="csrf-token"]') || {}).getAttribute('content') || '';
-        fetch('/assets/api/scan', {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-                'X-CSRFToken': csrfToken
-            },
-            credentials: 'same-origin',
-            body: JSON.stringify({ asset_ids: [ASSET_ID] })
-        })
-        .then(function (r) { return r.json(); })
-        .then(function (data) {
-            const toast   = document.getElementById('correlate-toast');
-            const msgEl   = document.getElementById('correlate-msg');
-            const newAssoc = data.new_associations || 0;
-            const total    = data.total || 0;
-
-            if (msgEl && toast) {
-                if (newAssoc > 0) {
-                    toast.querySelector('.alert').className = 'alert alert-success d-flex align-items-center gap-2';
-                    msgEl.textContent = newAssoc + ' nova(s) CVE(s) encontrada(s)! Total correlacionado: ' + total + '. Recarregando…';
-                    toast.style.display = 'block';
-                    setTimeout(function () { window.location.reload(); }, 1800);
-                } else {
-                    toast.querySelector('.alert').className = 'alert alert-info d-flex align-items-center gap-2';
-                    msgEl.textContent = total > 0
-                        ? total + ' CVE(s) já correlacionadas — nenhuma nova encontrada.'
-                        : 'Nenhuma CVE correspondente a este ativo foi encontrada na base.';
-                    toast.style.display = 'block';
-                    btn.disabled  = false;
-                    btn.innerHTML = originalHTML;
-                }
-            }
-        })
-        .catch(function (err) {
-            console.error('Correlation error:', err);
-            btn.disabled  = false;
-            btn.innerHTML = originalHTML;
-            alert('Erro ao correlacionar CVEs. Tente novamente.');
-        });
-    }
-
-    // Wire all three correlate buttons
-    ['btn-correlate', 'btn-correlate-2', 'btn-correlate-empty'].forEach(function (id) {
-        const el = document.getElementById(id);
-        if (el) { el.addEventListener('click', function () { correlate(el); }); }
-    });
-})();
-</script>
+<script src="{{ url_for('static', filename='js/pages/inventory/detail.js') }}" defer></script>
 {% endblock %}
