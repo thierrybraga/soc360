@@ -177,6 +177,31 @@
                             </span>
                         </button>
                     </li>
+
+                    <li role="presentation">
+                        <button
+                            class="sidebar-nav__item {% if active_tab == 'umbrella' %}active{% endif %}"
+                            id="tab-btn-umbrella"
+                            data-bs-toggle="tab"
+                            data-bs-target="#tab-umbrella"
+                            type="button" role="tab"
+                            aria-controls="tab-umbrella"
+                            aria-selected="{{ 'true' if active_tab == 'umbrella' else 'false' }}"
+                        >
+                            <span class="sidebar-nav__icon {% if umbrella_config and umbrella_config.configured %}sidebar-nav__icon--success{% endif %}">
+                                <i class="fas fa-umbrella"></i>
+                            </span>
+                            <span class="sidebar-nav__label">
+                                <span class="sidebar-nav__title">
+                                    Cisco Umbrella
+                                    {% if umbrella_config and umbrella_config.configured %}
+                                    <span class="snav-badge snav-badge--success">ON</span>
+                                    {% endif %}
+                                </span>
+                                <span class="sidebar-nav__desc">DNS Security</span>
+                            </span>
+                        </button>
+                    </li>
                     {% endif %}
 
                     <li role="presentation">
@@ -676,7 +701,7 @@
                                         </div>
                                         <label for="tacacsFallback" class="toggle-item__label">
                                             <strong>Fallback para autenticação local</strong>
-                                            <span>Se o TACACS+ estiver indisponível, permite login com senha local.</span>
+                                            <span>Permite login com senha local quando o TACACS+ falha ou rejeita as credenciais. Desative para forçar autenticação exclusiva via TACACS+.</span>
                                         </label>
                                     </div>
                                     <div class="toggle-item">
@@ -859,6 +884,148 @@
                         </div>
                     </div>
                 </div><!-- /tab-openai -->
+                {% endif %}
+
+                <!-- ══════════════════════════════════════════════
+                     TAB: CISCO UMBRELLA  (admin only)
+                ══════════════════════════════════════════════ -->
+                {% if current_user.is_admin %}
+                <div class="tab-pane fade {% if active_tab == 'umbrella' %}show active{% endif %}"
+                     id="tab-umbrella" role="tabpanel" aria-labelledby="tab-btn-umbrella"
+                     data-umbrella-configured="{{ 'true' if umbrella_config and umbrella_config.configured else 'false' }}"
+                     data-umbrella-source="{{ umbrella_config.source if umbrella_config and umbrella_config.source else '' }}">
+
+                    <div class="sc-header">
+                        <h2 class="sc-title"><i class="fas fa-umbrella"></i>Cisco Umbrella</h2>
+                        <p class="sc-desc">Configure as credenciais da API Cisco Umbrella para ativar dados reais de DNS Security e desabilitar o modo demo.</p>
+                    </div>
+
+                    <div class="scard">
+                        <div class="scard__head">
+                            <div class="scard__icon {% if umbrella_config and umbrella_config.configured %}scard__icon--success{% endif %}">
+                                <i class="fas fa-key"></i>
+                            </div>
+                            <div>
+                                <h3 class="scard__title">Credenciais da API Umbrella</h3>
+                                <p class="scard__sub">API Key e Secret são armazenados criptografados e nunca exibidos integralmente.</p>
+                            </div>
+                            <span class="scard__status {% if umbrella_config and umbrella_config.configured %}scard__status--ok{% endif %}" id="umbrella-status-badge">
+                                <i class="fas fa-circle"></i>
+                                {% if umbrella_config and umbrella_config.configured %}Credenciais configuradas{% else %}Modo demo ativo{% endif %}
+                            </span>
+                        </div>
+                        <div class="scard__body">
+                            <div class="alert {% if umbrella_config and umbrella_config.configured %}alert-success{% else %}alert-warning{% endif %}" id="umbrella-status-alert" role="status" aria-live="polite">
+                                <i class="fas {% if umbrella_config and umbrella_config.configured %}fa-circle-check{% else %}fa-circle-exclamation{% endif %}"></i>
+                                <div class="alert-body">
+                                    <strong id="umbrella-status-title">
+                                        {% if umbrella_config and umbrella_config.configured %}Credenciais configuradas{% else %}Modo demo ativo{% endif %}
+                                    </strong>
+                                    <p id="umbrella-status-text">
+                                        {% if umbrella_config and umbrella_config.configured %}
+                                        Usando key {{ umbrella_config.masked_key }}{% if umbrella_config.source == 'environment' %} via variável de ambiente{% else %} via armazenamento seguro interno{% endif %}.
+                                        {% else %}
+                                        Cadastre as credenciais para conectar à API real da Cisco Umbrella.
+                                        {% endif %}
+                                    </p>
+                                </div>
+                            </div>
+
+                            {% if umbrella_config and umbrella_config.last_test and umbrella_config.last_test.at %}
+                            <div class="alert {% if umbrella_config.last_test.ok %}alert-success{% else %}alert-warning{% endif %}" id="umbrella-last-test-alert" role="status">
+                                <i class="fas {% if umbrella_config.last_test.ok %}fa-circle-check{% else %}fa-circle-exclamation{% endif %}"></i>
+                                <div class="alert-body">
+                                    <strong>Último teste:</strong> {{ umbrella_config.last_test.message or 'sem mensagem' }}
+                                    <br><small class="text-muted">{{ umbrella_config.last_test.at }}</small>
+                                </div>
+                            </div>
+                            {% endif %}
+
+                            <form id="umbrellaConfigForm" autocomplete="off">
+                                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                                <div class="fgrid">
+                                    <div class="fgrid__col fgrid__col--wide">
+                                        <label for="umbrellaApiKeyInput" class="form-label">API Key</label>
+                                        <div class="input-group">
+                                            <input type="password"
+                                                   id="umbrellaApiKeyInput"
+                                                   name="api_key"
+                                                   class="form-input font-monospace"
+                                                   placeholder="{% if umbrella_config and umbrella_config.masked_key %}{{ umbrella_config.masked_key }}{% else %}Cole sua API Key aqui{% endif %}"
+                                                   autocomplete="new-password"
+                                                   autocapitalize="off"
+                                                   spellcheck="false"
+                                                   aria-describedby="umbrellaApiKeyHelp">
+                                            <button class="btn toggle-password-btn" type="button" data-target="umbrellaApiKeyInput" aria-label="Mostrar ou ocultar API Key">
+                                                <i class="fas fa-eye"></i>
+                                            </button>
+                                        </div>
+                                        <div class="form-text" id="umbrellaApiKeyHelp">Disponível em <strong>Cisco Security Cloud Sign On → Umbrella → API Keys</strong>.</div>
+                                    </div>
+                                    <div class="fgrid__col fgrid__col--wide">
+                                        <label for="umbrellaApiSecretInput" class="form-label">
+                                            API Secret
+                                            {% if umbrella_config and umbrella_config.configured and umbrella_config.source != 'environment' %}
+                                            <span class="field-badge field-badge--ok"><i class="fas fa-lock"></i>armazenado</span>
+                                            {% endif %}
+                                        </label>
+                                        <div class="input-group">
+                                            <input type="password"
+                                                   id="umbrellaApiSecretInput"
+                                                   name="api_secret"
+                                                   class="form-input font-monospace"
+                                                   placeholder="{% if umbrella_config and umbrella_config.masked_secret %}{{ umbrella_config.masked_secret }}{% else %}Cole seu API Secret aqui{% endif %}"
+                                                   autocomplete="new-password"
+                                                   autocapitalize="off"
+                                                   spellcheck="false">
+                                            <button class="btn toggle-password-btn" type="button" data-target="umbrellaApiSecretInput" aria-label="Mostrar ou ocultar API Secret">
+                                                <i class="fas fa-eye"></i>
+                                            </button>
+                                        </div>
+                                        <div class="form-text">Após salvar, apenas os últimos caracteres ficam visíveis.</div>
+                                    </div>
+                                </div>
+
+                                <div class="settings-action-bar">
+                                    <button type="submit" class="btn btn-primary" id="umbrella-save-btn" data-action="umbrella-save">
+                                        <i class="fas fa-check"></i>Salvar Credenciais
+                                    </button>
+                                    <button type="button" class="btn btn-outline-secondary" id="umbrella-test-btn" data-action="umbrella-test">
+                                        <i class="fas fa-vial"></i>Testar Conexão
+                                    </button>
+                                    <button type="button" class="btn btn-outline-danger" id="umbrella-remove-btn" data-action="umbrella-remove"
+                                        {% if not umbrella_config or not umbrella_config.configured or umbrella_config.source == 'environment' %}disabled{% endif %}>
+                                        <i class="fas fa-trash"></i>Remover Credenciais
+                                    </button>
+                                </div>
+                            </form>
+                        </div>
+                    </div>
+
+                    <div class="tips-row">
+                        <div class="tip-item">
+                            <div class="tip-item__icon"><i class="fas fa-eye-slash"></i></div>
+                            <div>
+                                <strong>Nunca expostas ao frontend</strong>
+                                <p>A API retorna apenas status e credenciais mascaradas.</p>
+                            </div>
+                        </div>
+                        <div class="tip-item">
+                            <div class="tip-item__icon"><i class="fas fa-lock"></i></div>
+                            <div>
+                                <strong>Armazenamento protegido</strong>
+                                <p>Credenciais salvas pelo painel ficam criptografadas com Fernet/SECRET_KEY.</p>
+                            </div>
+                        </div>
+                        <div class="tip-item">
+                            <div class="tip-item__icon"><i class="fas fa-toggle-off"></i></div>
+                            <div>
+                                <strong>Modo demo automático</strong>
+                                <p>Sem credenciais, a integração usa dados simulados. Configure para ativar dados reais.</p>
+                            </div>
+                        </div>
+                    </div>
+                </div><!-- /tab-umbrella -->
                 {% endif %}
 
                 <!-- ══════════════════════════════════════════════

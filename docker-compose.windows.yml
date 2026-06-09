@@ -24,7 +24,19 @@ x-app-defaults: &app-defaults
     - FLASK_DEBUG=0
     - PYTHONPATH=/app
     - SECRET_KEY_FILE=/run/secrets/secret_key
-    - DATABASE_URL=sqlite:///instance/app.db
+
+    # PostgreSQL (backend padrão também no Windows/Docker Desktop).
+    # core (bind default) e public apontam para o MESMO banco soc360.
+    # Senha via secret postgres_password (propagada pelo entrypoint).
+    - DB_CORE_HOST=postgres
+    - DB_CORE_PORT=5432
+    - DB_CORE_NAME=${POSTGRES_DB:-soc360}
+    - DB_CORE_USER=${POSTGRES_USER:-soc360}
+    - DB_PUBLIC_HOST=postgres
+    - DB_PUBLIC_PORT=5432
+    - DB_PUBLIC_NAME=${POSTGRES_DB:-soc360}
+    - DB_PUBLIC_USER=${POSTGRES_USER:-soc360}
+    - POSTGRES_PASSWORD_FILE=/run/secrets/postgres_password
 
     # Redis
     - REDIS_HOST=redis
@@ -137,12 +149,15 @@ services:
     <<: *app-defaults
     container_name: soc360-app
     depends_on:
+      postgres:
+        condition: service_healthy
       redis:
         condition: service_healthy
     entrypoint: ["/entrypoint.sh"]
     command: ["gunicorn", "app:create_app()"]
     secrets:
       - secret_key
+      - postgres_password
 
   # -------------------------------------------------------------------------
   # Celery Worker
@@ -152,6 +167,8 @@ services:
     container_name: soc360-celery-worker
     depends_on:
       app:
+        condition: service_healthy
+      postgres:
         condition: service_healthy
       redis:
         condition: service_healthy
@@ -164,6 +181,7 @@ services:
       start_period: 60s
     secrets:
       - secret_key
+      - postgres_password
 
   # -------------------------------------------------------------------------
   # Celery Beat (Scheduler)
@@ -174,11 +192,14 @@ services:
     depends_on:
       app:
         condition: service_healthy
+      postgres:
+        condition: service_healthy
       redis:
         condition: service_healthy
     command: ["celery", "-A", "scripts.workers.celery_worker.celery", "beat", "--loglevel=info"]
     secrets:
       - secret_key
+      - postgres_password
     deploy:
       resources:
         limits:
@@ -187,6 +208,41 @@ services:
         reservations:
           cpus: '0.1'
           memory: 128M
+
+  # -------------------------------------------------------------------------
+  # PostgreSQL (banco primário — core + public no mesmo banco)
+  # -------------------------------------------------------------------------
+  postgres:
+    image: postgres:16-alpine
+    container_name: soc360-postgres
+    restart: unless-stopped
+    environment:
+      - POSTGRES_USER=${POSTGRES_USER:-soc360}
+      - POSTGRES_DB=${POSTGRES_DB:-soc360}
+      - POSTGRES_PASSWORD_FILE=/run/secrets/postgres_password
+      - POSTGRES_INITDB_ARGS=--encoding=UTF8 --locale=C
+    volumes:
+      - soc360-postgres-data:/var/lib/postgresql/data
+    networks:
+      - soc360-network
+    ports:
+      - "${DB_EXPOSE:-127.0.0.1:5432}:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-soc360} -d ${POSTGRES_DB:-soc360}"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
+    deploy:
+      resources:
+        limits:
+          cpus: '2'
+          memory: 2G
+        reservations:
+          cpus: '0.25'
+          memory: 256M
+    secrets:
+      - postgres_password
 
   # -------------------------------------------------------------------------
   # Redis — password via env var (Docker secrets têm suporte limitado no Windows)
@@ -228,6 +284,8 @@ services:
 secrets:
   secret_key:
     file: ./secrets/secret_key.txt
+  postgres_password:
+    file: ./secrets/postgres_password.txt
 
 # =============================================================================
 # NETWORKS & VOLUMES
@@ -253,4 +311,6 @@ volumes:
   soc360-static:
     driver: local
   soc360-redis-data:
+    driver: local
+  soc360-postgres-data:
     driver: local

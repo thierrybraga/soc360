@@ -25,7 +25,6 @@ class DevelopmentConfig(BaseConfig):
     SQLALCHEMY_DATABASE_URI = f"postgresql://{BaseConfig.DB_CORE_USER}:{BaseConfig.DB_CORE_PASSWORD}@{DB_CORE_HOST}:{BaseConfig.DB_CORE_PORT}/{BaseConfig.DB_CORE_NAME}"
     
     SQLALCHEMY_BINDS = {
-        'core': SQLALCHEMY_DATABASE_URI,
         'public': f"postgresql://{BaseConfig.DB_PUBLIC_USER}:{BaseConfig.DB_PUBLIC_PASSWORD}@{DB_PUBLIC_HOST}:{os.environ.get('DB_PUBLIC_PORT', BaseConfig.DB_PUBLIC_PORT)}/{BaseConfig.DB_PUBLIC_NAME}"
     }
 
@@ -58,7 +57,6 @@ class DevelopmentConfig(BaseConfig):
         print(f"DEBUG: Enabling SQLite Mode (DB Path: {db_path})")
         SQLALCHEMY_DATABASE_URI = 'sqlite:///' + db_path
         SQLALCHEMY_BINDS = {
-            'core': 'sqlite:///' + db_path,
             'public': 'sqlite:///' + db_path
         }
         # SQLite não suporta pool_size/pool_recycle; StaticPool evita erros de thread
@@ -106,7 +104,6 @@ class TestingConfig(BaseConfig):
     SQLALCHEMY_DATABASE_URI = f"postgresql://{BaseConfig.DB_CORE_USER}:{BaseConfig.DB_CORE_PASSWORD}@{DB_CORE_HOST}:{BaseConfig.DB_CORE_PORT}/{BaseConfig.DB_CORE_NAME}"
     
     SQLALCHEMY_BINDS = {
-        'core': SQLALCHEMY_DATABASE_URI,
         'public': f"postgresql://{BaseConfig.DB_PUBLIC_USER}:{BaseConfig.DB_PUBLIC_PASSWORD}@{DB_PUBLIC_HOST}:{BaseConfig.DB_PUBLIC_PORT}/{BaseConfig.DB_PUBLIC_NAME}"
     }
     
@@ -115,7 +112,6 @@ class TestingConfig(BaseConfig):
     if os.environ.get('USE_SQLITE_TEST'):
         SQLALCHEMY_DATABASE_URI = 'sqlite:///:memory:'
         SQLALCHEMY_BINDS = {
-            'core': 'sqlite:///:memory:',
             'public': 'sqlite:///:memory:'
         }
     
@@ -131,6 +127,7 @@ class TestingConfig(BaseConfig):
     
     # Disable Redis caching
     CACHE_DEFAULT_TTL = 0
+    NVD_AUTO_SYNC_ENABLED = False
     
     @classmethod
     def init_app(cls, app):

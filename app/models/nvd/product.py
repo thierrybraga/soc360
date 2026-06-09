@@ -2,7 +2,7 @@
 SOC360 Affected Product Model
 Model para produtos afetados por CVEs (dados detalhados da MITRE).
 """
-from sqlalchemy import Column, String, ForeignKey
+from sqlalchemy import Column, String, ForeignKey, UniqueConstraint
 from app.extensions.db_types import JSONB
 from sqlalchemy.orm import relationship
 from app.models.system.base_model import PublicModel
@@ -15,6 +15,9 @@ class AffectedProduct(PublicModel):
     """
     __tablename__ = 'affected_products'
     __bind_key__ = 'public'
+    __table_args__ = (
+        UniqueConstraint('cve_id', 'vendor', 'product', name='uq_affected_product_cve_vendor_product'),
+    )
     
     # Foreign Key
     cve_id = Column(

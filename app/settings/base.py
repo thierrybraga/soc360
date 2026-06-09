@@ -58,8 +58,10 @@ class BaseConfig:
     
     SQLALCHEMY_DATABASE_URI = f"postgresql://{DB_CORE_USER}:{DB_CORE_PASSWORD}@{DB_CORE_HOST}:{DB_CORE_PORT}/{DB_CORE_NAME}"
     
+    # 'core' é o bind DEFAULT (SQLALCHEMY_DATABASE_URI acima); apenas 'public'
+    # é um bind nomeado. Evita duplicar o engine do core e o footgun de
+    # autogenerate do Alembic (default == core).
     SQLALCHEMY_BINDS = {
-        'core': f"postgresql://{DB_CORE_USER}:{DB_CORE_PASSWORD}@{DB_CORE_HOST}:{DB_CORE_PORT}/{DB_CORE_NAME}",
         'public': f"postgresql://{DB_PUBLIC_USER}:{DB_PUBLIC_PASSWORD}@{DB_PUBLIC_HOST}:{DB_PUBLIC_PORT}/{DB_PUBLIC_NAME}"
     }
     
@@ -90,6 +92,10 @@ class BaseConfig:
                 'schedule': crontab(minute=0, hour='*/4'),  # Every 4 hours
                 'args': ('incremental',)
             },
+            'ensure-nvd-sync-if-stale': {
+                'task': 'nvd.ensure_sync',
+                'schedule': crontab(minute='*/15'),
+            },
         }
     except ImportError:
         CELERY_BEAT_SCHEDULE = {}
@@ -102,6 +108,9 @@ class BaseConfig:
     NVD_SYNC_WINDOW_DAYS = 120  # NVD API limit
     NVD_INCREMENTAL_DAYS = 30
     NVD_RESULTS_PER_PAGE = 2000
+    NVD_AUTO_SYNC_ENABLED = os.environ.get('NVD_AUTO_SYNC_ENABLED', 'true').lower() == 'true'
+    NVD_AUTO_SYNC_MAX_AGE_HOURS = int(os.environ.get('NVD_AUTO_SYNC_MAX_AGE_HOURS', 4))
+    NVD_AUTO_SYNC_CHECK_INTERVAL_SECONDS = int(os.environ.get('NVD_AUTO_SYNC_CHECK_INTERVAL_SECONDS', 900))
     
     # ── AI Provider ────────────────────────────────────────────────────────
     # AI_PROVIDER: 'openai' (padrão, demo mode sem chave) | 'ollama' (local)
@@ -193,7 +202,6 @@ class BaseConfig:
             app.logger.warning('PostgreSQL not accessible (%s). Falling back to SQLite at %s', db_uri, db_path)
             app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///' + db_path
             app.config['SQLALCHEMY_BINDS'] = {
-                'core': 'sqlite:///' + db_path,
                 'public': 'sqlite:///' + db_path
             }
             # NullPool: cada thread obtém sua própria conexão SQLite independente.

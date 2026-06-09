@@ -52,7 +52,6 @@ def severity_from_level(level) -> str:
 
 class WazuhAlert(CoreModel):
     __tablename__ = 'wazuh_alerts'
-    __bind_key__ = 'core'
 
     # ── Wazuh identity ──────────────────────────────────────────────────
     # Composite uid "<index>:<_id>" guarantees idempotent upserts across

@@ -7,12 +7,18 @@ from sqlalchemy.orm import relationship
 from app.extensions.db import db
 from app.models.system.base_model import PublicModel
 
-# Tabela de associação entre Técnicas e Táticas
+# Tabelas de associação (sem bind_key → metadata default).
+# IMPORTANTE: estas M2M são referenciadas por primaryjoin em STRING nas
+# relationships abaixo (ex.: "Tactic.id == mitre_technique_tactics.c.tactic_id").
+# A resolução de nome de tabela por string do SQLAlchemy procura no metadata
+# default — não nas metadatas por-bind. Mantê-las no default é obrigatório para
+# a configuração dos mappers funcionar. Como core e public usam o MESMO banco
+# físico (relações cross-bind exigem isso), ficam no banco correto de qualquer
+# forma. NÃO usar bind_key aqui.
 technique_tactic_association = db.Table(
     'mitre_technique_tactics',
     Column('technique_id', Integer, primary_key=True),
     Column('tactic_id', Integer, primary_key=True),
-    info={'bind_key': 'public'}
 )
 
 # Tabela de associação entre Técnicas e Mitigações
@@ -20,7 +26,6 @@ technique_mitigation_association = db.Table(
     'mitre_technique_mitigations',
     Column('technique_id', Integer, primary_key=True),
     Column('mitigation_id', Integer, primary_key=True),
-    info={'bind_key': 'public'}
 )
 
 class Tactic(PublicModel):

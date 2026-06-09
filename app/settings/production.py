@@ -66,8 +66,17 @@ class ProductionConfig(BaseConfig):
             ))
             app.logger.addHandler(handler)
 
-        # Strategy to fallback to SQLite if Postgres is unreachable
+        # SQLite só é permitido em modo local. Em produção NÃO há fallback
+        # silencioso: se o Postgres estiver inacessível, falha com mensagem clara
+        # (a menos que ALLOW_SQLITE_FALLBACK=true seja definido explicitamente).
         db_uri = app.config.get('SQLALCHEMY_DATABASE_URI')
-        cls.fallback_to_sqlite(app, db_uri)
+        if os.environ.get('ALLOW_SQLITE_FALLBACK', '').strip().lower() == 'true':
+            cls.fallback_to_sqlite(app, db_uri)
+        elif db_uri and db_uri.startswith('postgresql://') and not cls._is_postgres_available(db_uri):
+            raise RuntimeError(
+                f"PostgreSQL inacessível em produção ({db_uri}). SQLite só é "
+                "permitido em modo local. Garanta o serviço Postgres ou defina "
+                "ALLOW_SQLITE_FALLBACK=true (não recomendado em produção)."
+            )
 
 

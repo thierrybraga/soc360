@@ -2,7 +2,7 @@
 SOC360 Credit Model
 Model para créditos de descoberta/contribuição de CVEs.
 """
-from sqlalchemy import Column, String, ForeignKey
+from sqlalchemy import Column, String, ForeignKey, UniqueConstraint
 from sqlalchemy.orm import relationship
 from app.models.system.base_model import PublicModel
 
@@ -13,6 +13,9 @@ class Credit(PublicModel):
     """
     __tablename__ = 'credits'
     __bind_key__ = 'public'
+    __table_args__ = (
+        UniqueConstraint('cve_id', 'value', 'type', 'user', name='uq_credit_cve_value_type_user'),
+    )
     
     # Foreign Key
     cve_id = Column(

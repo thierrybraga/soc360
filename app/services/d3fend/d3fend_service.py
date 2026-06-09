@@ -12,7 +12,7 @@ from app.models.d3fend import (
     D3fendTechnique, D3fendTactic, D3fendArtifact,
     D3fendOffensiveMapping, CveD3fendCorrelation
 )
-from app.models.nvd import Vulnerability
+from app.models.nvd import Vulnerability, Weakness
 from app.models.system import SyncMetadata
 from app.services.core.base_sync_service import BaseSyncService
 
@@ -212,10 +212,14 @@ class D3FENDService(BaseSyncService):
         try:
             self.start_sync('Correlating CVEs with D3FEND...')
             
-            # Buscar CVEs que têm CWEs associados
-            cves = Vulnerability.query.filter(
-                Vulnerability.cwe_ids.isnot(None)
-            ).limit(limit).all()
+            # Buscar CVEs que têm CWEs associadas na tabela normalizada.
+            cves = (
+                Vulnerability.query
+                .join(Weakness, Weakness.cve_id == Vulnerability.cve_id)
+                .distinct()
+                .limit(limit)
+                .all()
+            )
             
             correlations_created = 0
             

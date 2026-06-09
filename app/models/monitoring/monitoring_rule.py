@@ -19,7 +19,6 @@ class MonitoringRule(CoreModel):
     são descobertas ou quando condições específicas são atendidas.
     """
     __tablename__ = 'monitoring_rules'
-    __bind_key__ = 'core'
     
     # Identificação
     name = Column(String(255), nullable=False)
@@ -122,36 +121,71 @@ class MonitoringRule(CoreModel):
             bool: True se a vulnerabilidade atende aos critérios
         """
         params = self.parameters or {}
-        
+
         # Verificar severidade
-        severity_threshold = params.get('severity_threshold', [])
-        if severity_threshold and vulnerability.base_severity not in severity_threshold:
-            # Verificar por score CVSS mínimo
-            min_score = params.get('min_cvss_score')
-            if min_score and (not vulnerability.cvss_score or vulnerability.cvss_score < min_score):
+        severity_threshold = [
+            str(severity).upper()
+            for severity in params.get('severity_threshold', [])
+            if severity
+        ]
+        vulnerability_severity = str(getattr(vulnerability, 'base_severity', '') or '').upper()
+        min_score = params.get('min_cvss_score')
+        try:
+            min_score = float(min_score) if min_score is not None else None
+        except (TypeError, ValueError):
+            min_score = None
+        cvss_score = getattr(vulnerability, 'cvss_score', None)
+        try:
+            cvss_score = float(cvss_score) if cvss_score is not None else None
+        except (TypeError, ValueError):
+            cvss_score = None
+
+        if severity_threshold and vulnerability_severity not in severity_threshold:
+            if min_score is None or cvss_score is None or cvss_score < float(min_score):
                 return False
-        
+        elif min_score is not None and (cvss_score is None or cvss_score < float(min_score)):
+            return False
+
+        severity_levels = [
+            str(severity).upper()
+            for severity in params.get('severity_levels', [])
+            if severity
+        ]
+        if severity_levels and vulnerability_severity not in severity_levels:
+            if min_score is None or cvss_score is None or cvss_score < float(min_score):
+                return False
+
         # Verificar vendor
         vendor_filter = params.get('vendor_filter', [])
         if vendor_filter:
             vuln_vendors = [v.lower() for v in (vulnerability.vendors or [])]
-            if not any(vf.lower() in vuln_vendors for vf in vendor_filter):
+            if not any(
+                vf.lower() == vendor or vf.lower() in vendor or vendor in vf.lower()
+                for vf in vendor_filter
+                for vendor in vuln_vendors
+            ):
                 return False
-        
+
         # Verificar product
         product_filter = params.get('product_filter', [])
         if product_filter:
             vuln_products = [p.lower() for p in (vulnerability.products or [])]
-            if not any(pf.lower() in vuln_products for pf in product_filter):
+            if not any(
+                pf.lower() == product or pf.lower() in product or product in pf.lower()
+                for pf in product_filter
+                for product in vuln_products
+            ):
                 return False
-        
+
         # Verificar keywords
         keywords = params.get('keywords', [])
-        if keywords and vulnerability.description:
+        if keywords:
+            if not vulnerability.description:
+                return False
             desc_lower = vulnerability.description.lower()
             if not any(kw.lower() in desc_lower for kw in keywords):
                 return False
-        
+
         # Verificar CISA KEV
         if self.rule_type == MonitoringRuleType.CISA_KEV.value:
             if not vulnerability.is_in_cisa_kev:

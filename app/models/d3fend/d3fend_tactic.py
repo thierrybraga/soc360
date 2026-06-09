@@ -13,7 +13,7 @@ class D3fendTactic(db.Model):
     Agrupa técnicas defensivas por objetivo estratégico.
     """
     __tablename__ = 'd3fend_tactics'
-    __bind_key__ = 'core'
+    __bind_key__ = 'public'
     
     id = db.Column(db.String(50), primary_key=True)  # e.g., "detect"
     name = db.Column(db.String(200), nullable=False)

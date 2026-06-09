@@ -73,6 +73,9 @@ def create_app(config_name: str | dict | None = None) -> Flask:
     
     # Registrar context processors
     register_context_processors(app)
+
+    # Registrar checagem automática de sincronia NVD
+    register_nvd_auto_sync(app)
     
     # Registrar CLI commands
     register_cli_commands(app)
@@ -294,6 +297,42 @@ def register_context_processors(app: Flask) -> None:
         }
 
 
+def register_nvd_auto_sync(app: Flask) -> None:
+    """Registrar gatilho leve para manter a base NVD sincronizada."""
+
+    @app.before_request
+    def ensure_nvd_sync_on_request():
+        if not app.config.get('NVD_AUTO_SYNC_ENABLED', True):
+            return
+        if app.config.get('TESTING', False):
+            return
+        if request.endpoint == 'static' or request.path.startswith('/static'):
+            return
+        if request.path in {'/health', '/api/v1/health'}:
+            return
+
+        try:
+            from datetime import datetime, timedelta, timezone
+            from app.models.system import SyncMetadata
+            from app.services.nvd.nvd_sync_service import NVDSyncService, ensure_nvd_sync_if_needed
+
+            now = datetime.now(timezone.utc)
+            check_interval = int(app.config.get('NVD_AUTO_SYNC_CHECK_INTERVAL_SECONDS', 900))
+            last_check = NVDSyncService._parse_datetime(
+                SyncMetadata.get(NVDSyncService.AUTO_SYNC_LAST_CHECK_KEY)
+            )
+
+            if last_check and now - last_check < timedelta(seconds=check_interval):
+                return
+
+            SyncMetadata.set(NVDSyncService.AUTO_SYNC_LAST_CHECK_KEY, now.isoformat())
+            started, health = ensure_nvd_sync_if_needed(async_mode=True, dispatch=True)
+            if started:
+                app.logger.info('NVD auto-sync started: %s', health.get('reason'))
+        except Exception as exc:
+            app.logger.warning('NVD auto-sync check failed: %s', exc)
+
+
 def register_cli_commands(app: Flask) -> None:
     """Registrar comandos CLI."""
     
@@ -342,9 +381,13 @@ def register_cli_commands(app: Flask) -> None:
     @app.cli.command('sync-nvd')
     def sync_nvd():
         """Disparar sincronização NVD manualmente."""
-        from app.jobs import trigger_nvd_sync
-        trigger_nvd_sync()
-        print('NVD sync triggered.')
+        from app.services.nvd.nvd_sync_service import NVDSyncService, SyncMode
+
+        service = NVDSyncService()
+        if service.start_sync(mode=SyncMode.INCREMENTAL, async_mode=False):
+            print('NVD sync completed.')
+        else:
+            print('NVD sync is already running.')
     
     @app.cli.command('clear-cache')
     def clear_cache():

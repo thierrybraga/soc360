@@ -145,7 +145,10 @@ def list_assets():
     pagination = query.paginate(page=page, per_page=per_page, error_out=False)
     
     return jsonify({
-        'items': [a.to_dict() for a in pagination.items],
+        # include_vuln_stats=False: avoids N+1 lazy loads into the public DB
+        # per asset row — risk_score and critical_vulnerability_count are not
+        # needed in the list view (they are available on the detail page).
+        'items': [a.to_dict(include_vuln_stats=False) for a in pagination.items],
         'total': pagination.total,
         'pages': pagination.pages,
         'page': page,
@@ -445,7 +448,7 @@ def associate_vulnerability(asset_id, cve_id):
     
     # Criar associação
     data = request.get_json() or {}
-    
+
     assoc = AssetVulnerability(
         asset_id=asset_id,
         cve_id=cve_id.upper(),
@@ -453,15 +456,16 @@ def associate_vulnerability(asset_id, cve_id):
         discovered_at=datetime.utcnow(),
         notes=data.get('notes')
     )
-    
-    # Calcular risco contextual
-    assoc.calculate_contextual_risk()
-    
+    # Adicionar à sessão antes de calcular o risco — os relacionamentos
+    # asset e vulnerability só são carregáveis com o objeto rastreado.
     db.session.add(assoc)
+    db.session.flush()  # Garante que assoc.id existe e os rels funcionam
+    assoc.calculate_contextual_risk()
+
     db.session.commit()
-    
+
     logger.info(f'Vulnerability {cve_id} associated to asset {asset.name}')
-    
+
     return jsonify({
         'message': 'Vulnerability associated successfully',
         'contextual_risk_score': assoc.contextual_risk_score
@@ -508,29 +512,29 @@ def update_vulnerability_status(asset_id, cve_id):
         cve_id=cve_id.upper()
     ).first_or_404()
     
-    asset = Asset.query.get(asset_id)
+    asset = Asset.query.get_or_404(asset_id)
     if not current_user.is_admin and asset.owner_id != current_user.id:
         abort(403)
-    
+
     data = request.get_json() or {}
-    
+
     if 'status' in data:
         try:
             assoc.update_status(VulnerabilityStatus(data['status']).value, current_user.id)
         except ValueError:
             return jsonify({'error': 'Invalid status'}), 400
-    
+
     if 'notes' in data:
         assoc.notes = data['notes']
-    
+
     if 'due_date' in data:
         try:
             assoc.due_date = datetime.fromisoformat(data['due_date'])
         except ValueError:
             pass
-    
+
     db.session.commit()
-    
+
     return jsonify({'message': 'Vulnerability status updated'})
 
 
@@ -631,13 +635,23 @@ def stats():
         AssetVulnerability.status == VulnerabilityStatus.MITIGATED.value
     ).count()
 
-    critical_cves = [v.cve_id for v in Vulnerability.query.filter(
-        Vulnerability.base_severity == 'CRITICAL'
-    ).all()]
-    critical_vulns = AssetVulnerability.query.filter(
-        AssetVulnerability.status == VulnerabilityStatus.OPEN.value,
-        AssetVulnerability.cve_id.in_(critical_cves)
-    ).count()
+    # Cross-DB: fetch only the cve_id column (not full objects) to keep memory
+    # low, then filter asset_vulnerabilities with the resulting ID set.
+    critical_cve_ids = {
+        row[0]
+        for row in db.session.query(Vulnerability.cve_id).filter(
+            Vulnerability.base_severity == 'CRITICAL'
+        ).all()
+    }
+    critical_vulns = (
+        AssetVulnerability.query
+        .filter(
+            AssetVulnerability.status == VulnerabilityStatus.OPEN.value,
+            AssetVulnerability.cve_id.in_(critical_cve_ids),
+        )
+        .count()
+        if critical_cve_ids else 0
+    )
 
     return jsonify({
         'total': query.count(),

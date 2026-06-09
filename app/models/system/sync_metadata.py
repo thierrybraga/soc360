@@ -2,9 +2,14 @@
 SOC360 SyncMetadata Model
 Armazena metadados de sincronização com APIs externas.
 """
-from datetime import datetime
+from datetime import datetime, timezone
 from sqlalchemy import Column, String, Text, DateTime
 from app.extensions.db import db
+
+
+def _utcnow_naive():
+    """Return UTC now as naive datetime for existing DateTime columns."""
+    return datetime.now(timezone.utc).replace(tzinfo=None)
 
 
 class SyncMetadata(db.Model):
@@ -22,14 +27,13 @@ class SyncMetadata(db.Model):
     - system_initialized: Se o sistema foi inicializado
     """
     __tablename__ = 'sync_metadata'
-    __bind_key__ = 'core'
     
     key = Column(String(255), primary_key=True)
     value = Column(Text(), nullable=True)
     last_modified = Column(
         DateTime,
-        default=datetime.utcnow,
-        onupdate=datetime.utcnow,
+        default=_utcnow_naive,
+        onupdate=_utcnow_naive,
         nullable=False
     )
     
@@ -70,7 +74,7 @@ class SyncMetadata(db.Model):
             metadata = db.session.get(cls, key)
             if metadata:
                 metadata.value = str(value) if value is not None else None
-                metadata.last_modified = datetime.utcnow()
+                metadata.last_modified = _utcnow_naive()
             else:
                 metadata = cls(key=key, value=str(value) if value is not None else None)
                 db.session.add(metadata)
@@ -101,7 +105,7 @@ class SyncMetadata(db.Model):
                 metadata = db.session.get(cls, key)
                 if metadata:
                     metadata.value = str(value) if value is not None else None
-                    metadata.last_modified = datetime.utcnow()
+                    metadata.last_modified = _utcnow_naive()
                 else:
                     metadata = cls(key=key, value=str(value) if value is not None else None)
                     db.session.add(metadata)
@@ -158,7 +162,7 @@ class SyncMetadata(db.Model):
     def mark_first_sync_completed(cls):
         """Marca que o primeiro sync foi completado."""
         cls.set(cls.KEY_FIRST_SYNC_COMPLETED, 'true')
-        cls.set(cls.KEY_LAST_SYNC_DATE, datetime.utcnow().isoformat())
+        cls.set(cls.KEY_LAST_SYNC_DATE, _utcnow_naive().isoformat())
     
     @classmethod
     def is_system_initialized(cls):

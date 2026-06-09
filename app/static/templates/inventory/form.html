@@ -157,14 +157,24 @@
                                            placeholder="Ex: FG-100F, MX95">
                                 </div>
                                 <div class="col-12 col-md-4">
-                                    <label class="form-label">Firmware / Nome do SO</label>
-                                    <input type="text" id="asset-os-name" name="os_name" class="form-input"
-                                           placeholder="Ex: FortiOS, Meraki Firmware">
+                                    <label class="form-label">Versão do Produto / Firmware
+                                        <span class="form-label-hint" title="Usada para correlação CPE de CVEs">
+                                            <i class="fas fa-circle-info text-muted small"></i>
+                                        </span>
+                                    </label>
+                                    <input type="text" id="asset-version" name="version" class="form-input"
+                                           placeholder="Ex: 7.4.3, 18.107.10">
+                                    <div class="form-text">Versão principal do produto para matching de CVEs.</div>
                                 </div>
                                 <div class="col-12 col-md-4">
-                                    <label class="form-label">Firmware / Versão do SO</label>
+                                    <label class="form-label">Nome do SO / Firmware</label>
+                                    <input type="text" id="asset-os-name" name="os_name" class="form-input"
+                                           placeholder="Ex: FortiOS, Windows Server, Ubuntu">
+                                </div>
+                                <div class="col-12 col-md-4">
+                                    <label class="form-label">Versão do SO</label>
                                     <input type="text" id="asset-os-version" name="os_version" class="form-input"
-                                           placeholder="Ex: 7.4.3, 18.107.10">
+                                           placeholder="Ex: 2022, 22.04 LTS">
                                 </div>
                             </div>
                         </div>

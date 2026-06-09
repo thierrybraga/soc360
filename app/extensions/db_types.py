@@ -12,10 +12,68 @@ from sqlalchemy.types import TypeDecorator
 basedir = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 db_path = os.path.join(basedir, 'instance', 'app.db')
 
-_db_url = os.getenv('DATABASE_URL', '')
-# Use PostgreSQL-specific types only when explicitly connecting to Postgres.
-# Default to SQLite-compatible types for local dev (empty DATABASE_URL).
-USE_SQLITE = not _db_url.startswith(('postgresql', 'postgres'))
+def _resolve_use_sqlite() -> bool:
+    """Decide the column-type dialect from the SAME signals that configure the
+    actual connection in ``app/settings/base.py`` — so the types layer never
+    silently diverges from the engine.
+
+    Historically this read only ``DATABASE_URL``; a Postgres deployment
+    configured via ``DB_CORE_*`` (the documented way) but without
+    ``DATABASE_URL`` would get SQLite types (JSON instead of JSONB, String
+    instead of INET) and skip every GIN/partial index — degrading silently.
+
+    Priority:
+      1. Explicit URL override (``DATABASE_URL`` / ``CORE_DATABASE_URL``):
+         a ``postgres(ql)://`` prefix means Postgres, anything else SQLite.
+      2. Presence of ``DB_CORE_HOST``: settings builds a ``postgresql://`` URI
+         from ``DB_CORE_*`` whenever it is set, so use Postgres types.
+      3. Default: SQLite-compatible types (safe for local dev and for the
+         runtime Postgres→SQLite fallback).
+    """
+    for var in ('DATABASE_URL', 'CORE_DATABASE_URL'):
+        url = os.getenv(var, '').strip()
+        if url:
+            return not url.startswith(('postgresql', 'postgres'))
+    if os.getenv('DB_CORE_HOST', '').strip():
+        return False
+    return True
+
+
+USE_SQLITE = _resolve_use_sqlite()
+
+
+def assert_dialect_coherence(engine, logger=None) -> bool:
+    """Compare the column-type dialect chosen at import time with the dialect of
+    the engine actually connected, logging a clear ERROR on divergence.
+
+    Returns True when coherent. Call this once at startup (after any
+    Postgres→SQLite fallback has been resolved) so a mismatch surfaces as an
+    actionable message instead of an obscure ``can't render element of type
+    JSONB`` / missing-GIN-index degradation.
+    """
+    import logging as _logging
+
+    log = logger or _logging.getLogger(__name__)
+    connected_sqlite = engine.dialect.name == 'sqlite'
+    if connected_sqlite == USE_SQLITE:
+        return True
+
+    if USE_SQLITE and not connected_sqlite:
+        log.error(
+            'DB type/connection mismatch: connected to %r but column types are '
+            'SQLite-flavored (JSON/String, no JSONB/INET, GIN & partial indexes '
+            'skipped). Set DATABASE_URL=postgresql://... (or DB_CORE_HOST) so '
+            'JSONB/INET/GIN are used. Correlation and JSON queries will be '
+            'degraded until fixed.', engine.dialect.name,
+        )
+    else:
+        log.error(
+            'DB type/connection mismatch: column types are Postgres-flavored '
+            '(JSONB/INET) but the engine connected is SQLite. This will fail on '
+            'create_all/queries. Unset DATABASE_URL/DB_CORE_HOST for pure SQLite '
+            'use, or make Postgres reachable so the app does not fall back.',
+        )
+    return False
 
 # JSON type - use JSONB for PostgreSQL, JSON for SQLite
 JSONB = JSON if USE_SQLITE else PG_JSONB

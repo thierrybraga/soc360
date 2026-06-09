@@ -23,6 +23,18 @@ def _is_postgres_available(uri: str, timeout: int = 3) -> bool:
 
 logger = logging.getLogger(__name__)
 
+
+def _sqlite_fallback_allowed() -> bool:
+    """SQLite só é permitido em modo local.
+
+    Liberado quando ``ALLOW_SQLITE_FALLBACK=true`` (override explícito) ou
+    quando o ambiente não é produção. Em produção o fallback é bloqueado para
+    nunca rodar silenciosamente sobre SQLite.
+    """
+    if os.environ.get('ALLOW_SQLITE_FALLBACK', '').strip().lower() == 'true':
+        return True
+    return os.environ.get('FLASK_ENV', 'development').strip().lower() != 'production'
+
 def _sqlite_col_type(column) -> str:
     """Converte o tipo SQLAlchemy de uma coluna para um tipo SQLite válido."""
     type_str = str(column.type).upper()
@@ -49,64 +61,114 @@ def _sqlite_col_type(column) -> str:
     return 'TEXT'
 
 
-def ensure_schema_up_to_date(app: Flask):
+def _render_col_type(column, engine) -> str:
+    """Renderiza o tipo DDL de uma coluna para o dialeto realmente conectado.
+
+    Usa o compilador do próprio dialeto (correto para Postgres E SQLite —
+    JSONB/INET/TIMESTAMP no PG, JSON/DATETIME no SQLite). Cai para o mapeador
+    SQLite manual apenas se a compilação falhar.
     """
-    Verifica se o schema do banco de dados está atualizado.
-    Para SQLite, adiciona colunas faltantes automaticamente via ALTER TABLE.
+    try:
+        return column.type.compile(dialect=engine.dialect)
+    except Exception:
+        return _sqlite_col_type(column)
+
+
+def _render_default_clause(column, is_sqlite: bool) -> str:
+    """Monta a cláusula DEFAULT para um ALTER ADD COLUMN, segura por dialeto."""
+    if column.default is None or not hasattr(column.default, 'arg'):
+        return ""
+    arg = column.default.arg
+    # callables (ex.: datetime.utcnow) não têm valor literal — sem DEFAULT
+    if callable(arg):
+        return ""
+    if isinstance(arg, bool):
+        # Postgres exige TRUE/FALSE em colunas boolean; SQLite aceita 1/0
+        literal = ('1' if arg else '0') if is_sqlite else ('TRUE' if arg else 'FALSE')
+        return f" DEFAULT {literal}"
+    if isinstance(arg, (int, float)):
+        return f" DEFAULT {arg}"
+    if isinstance(arg, str):
+        safe = arg.replace("'", "''")  # escapa aspas simples
+        return f" DEFAULT '{safe}'"
+    return ""
+
+
+def ensure_schema_up_to_date(app: Flask):
+    """Garante que o schema acompanhe os models, em todos os binds.
+
+    ``create_all`` só cria tabelas ausentes; aqui adicionamos (apenas ADD —
+    nunca DROP) colunas que passaram a existir nos models. Funciona tanto em
+    SQLite quanto em PostgreSQL e respeita o multi-bind: cada tabela é
+    inspecionada/alterada no engine do seu próprio bind (essencial quando
+    core e public são bancos físicos distintos).
     """
     with app.app_context():
-        # 1. Criar tabelas que ainda não existem
+        # 1. Criar tabelas que ainda não existem (todos os binds)
         db.create_all()
 
-        inspector = inspect(db.engine)
-        table_names = inspector.get_table_names()
+        # 2. Mapear bind_key -> engine (FSA3 expõe db.engines; fallback p/ default)
+        engines = dict(getattr(db, 'engines', None) or {})
+        if not engines:
+            engines = {None: db.engine}
 
-        # Iterar sobre todos os mappers registrados no SQLAlchemy
+        # Cache de inspector + nomes de tabela por engine (evita reinspeção)
+        inspectors = {}
+        table_names_by_engine = {}
+        for key, eng in engines.items():
+            try:
+                insp = inspect(eng)
+                inspectors[key] = insp
+                table_names_by_engine[key] = set(insp.get_table_names())
+            except Exception as e:
+                logger.error("Falha ao inspecionar engine do bind %r: %s", key, e)
+
+        def _engine_for(bind_key):
+            if bind_key in engines:
+                return bind_key, engines[bind_key]
+            # Tabelas sem bind explícito usam o engine default (None)
+            return None, engines.get(None, db.engine)
+
         for mapper in db.Model.registry.mappers:
             model = mapper.class_
-            if not hasattr(model, '__table__'):
+            table = getattr(model, '__table__', None)
+            if table is None:
                 continue
 
-            table_name = model.__tablename__
-            if table_name not in table_names:
+            bind_key = getattr(model, '__bind_key__', None) or table.info.get('bind_key')
+            eng_key, engine = _engine_for(bind_key)
+            insp = inspectors.get(eng_key)
+            if insp is None:
                 continue
 
-            # Obter colunas atuais do banco
+            table_name = table.name
+            if table_name not in table_names_by_engine.get(eng_key, set()):
+                continue
+
             try:
-                existing_columns = {c['name'] for c in inspector.get_columns(table_name)}
+                existing_columns = {c['name'] for c in insp.get_columns(table_name)}
             except Exception:
                 continue
 
-            # Verificar cada coluna do model
-            for column in model.__table__.columns:
+            is_sqlite = engine.dialect.name == 'sqlite'
+            for column in table.columns:
                 if column.name in existing_columns:
                     continue
 
-                logger.info(f"Adicionando coluna faltante '{column.name}' na tabela '{table_name}'...")
-
-                col_type = _sqlite_col_type(column)
-
-                default_val = ""
-                if column.default is not None and hasattr(column.default, 'arg'):
-                    arg = column.default.arg
-                    if isinstance(arg, bool):
-                        default_val = f" DEFAULT {1 if arg else 0}"
-                    elif isinstance(arg, (int, float)):
-                        default_val = f" DEFAULT {arg}"
-                    elif isinstance(arg, str):
-                        # Escapar aspas simples para evitar SQL injection via valores defaults
-                        safe = arg.replace("'", "''")
-                        default_val = f" DEFAULT '{safe}'"
-
+                col_type = _render_col_type(column, engine)
+                default_val = _render_default_clause(column, is_sqlite)
+                ddl = f"ALTER TABLE {table_name} ADD COLUMN {column.name} {col_type}{default_val}"
+                logger.info("Adicionando coluna '%s' em '%s' (bind=%r)...",
+                            column.name, table_name, bind_key)
                 try:
-                    db.session.execute(
-                        text(f"ALTER TABLE {table_name} ADD COLUMN {column.name} {col_type}{default_val}")
-                    )
-                    db.session.commit()
-                    logger.info(f"Coluna '{column.name}' adicionada com sucesso.")
+                    # Executa no engine do bind correto (não na db.session, que é
+                    # ligada ao engine default/core).
+                    with engine.begin() as conn:
+                        conn.execute(text(ddl))
+                    logger.info("Coluna '%s' adicionada com sucesso.", column.name)
                 except Exception as e:
-                    db.session.rollback()
-                    logger.error(f"Erro ao adicionar coluna '{column.name}' em '{table_name}': {e}")
+                    logger.error("Erro ao adicionar coluna '%s' em '%s': %s",
+                                 column.name, table_name, e)
 
 def initialize_database(app: Flask):
     """
@@ -186,12 +248,18 @@ def check_and_init_db(app: Flask):
     db_uri = app.config.get('SQLALCHEMY_DATABASE_URI', '')
 
     # Se estiver em modo PostgreSQL e não acessível, faz fallback para SQLite
+    # APENAS em modo local; em produção, falha com mensagem clara.
     if db_uri.startswith('postgresql://'):
         if not _is_postgres_available(db_uri):
+            if not _sqlite_fallback_allowed():
+                raise RuntimeError(
+                    f"PostgreSQL inacessível ({db_uri}) e o fallback para SQLite está "
+                    "desabilitado. SQLite só é permitido em modo local — verifique o "
+                    "serviço Postgres ou defina ALLOW_SQLITE_FALLBACK=true (apenas dev)."
+                )
             app.logger.warning('Postgres não acessível (%s). Fallback para SQLite em %s', db_uri, db_path)
             app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///' + db_path
             app.config['SQLALCHEMY_BINDS'] = {
-                'core': 'sqlite:///' + db_path,
                 'public': 'sqlite:///' + db_path
             }
             # StaticPool compartilha uma única conexão entre threads de forma segura,
@@ -236,5 +304,30 @@ def check_and_init_db(app: Flask):
                     logger.info("Erro ao verificar status. Rodando inicialização completa...")
                     initialize_database(app)
     else:
-        # Em modo não SQlite assumimos banco principal já existe (Postgres disponível)
-        logger.info('Usando mecanismo de banco de dados existente: %s', db_uri)
+        # Modo PostgreSQL: na primeira subida cria todo o schema + seed (roles,
+        # admin, flag de inicialização); nas subsequentes apenas sincroniza o
+        # schema (create_all cria tabelas novas; ensure_schema_up_to_date aplica
+        # colunas adicionadas posteriormente — nunca dropa).
+        logger.info('Usando PostgreSQL: %s', db_uri)
+        try:
+            with app.app_context():
+                try:
+                    initialized = bool(SyncMetadata.get('system_initialized'))
+                except Exception:
+                    # Tabela ainda não existe → primeira subida
+                    initialized = False
+            if initialized:
+                ensure_schema_up_to_date(app)
+            else:
+                logger.info('PostgreSQL sem schema inicializado — criando tabelas e dados base...')
+                initialize_database(app)
+        except Exception as e:
+            logger.error('Falha ao inicializar/sincronizar schema no Postgres: %s', e, exc_info=True)
+
+    # Coerência tipo-de-coluna × dialeto realmente conectado (pós-fallback).
+    try:
+        from app.extensions.db_types import assert_dialect_coherence
+        with app.app_context():
+            assert_dialect_coherence(db.engine, logger)
+    except Exception as e:
+        logger.debug('Verificação de coerência de dialeto ignorada: %s', e)

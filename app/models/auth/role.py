@@ -20,7 +20,6 @@ class Role(CoreModel):
     - API_USER: Acesso via API
     """
     __tablename__ = 'roles'
-    __bind_key__ = 'core'
     
     name = Column(String(50), unique=True, nullable=False, index=True)
     description = Column(Text(), nullable=True)

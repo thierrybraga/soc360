@@ -22,7 +22,6 @@ class Report(CoreModel):
     - Arquivo PDF gerado
     """
     __tablename__ = 'reports'
-    __bind_key__ = 'core'
     
     # Identificação
     title = Column(String(500), nullable=False)
@@ -201,7 +200,9 @@ class Report(CoreModel):
             'user_id': self.user_id,
             'report_type': self.report_type,
             'status': self.status,
+            'error_message': self.error_message,
             'filters': self.filters,
+            'ai_status': (self.data or {}).get('ai_status') if isinstance(self.data, dict) else None,
             'has_ai_content': self.has_ai_content,
             'has_pdf': self.has_pdf,
             'file_size': self.file_size,
@@ -253,7 +254,6 @@ class RiskAssessment(CoreModel):
     Armazena avaliações de risco pontuais para ativos ou grupos de ativos.
     """
     __tablename__ = 'risk_assessments'
-    __bind_key__ = 'core'
     
     # Identificação
     name = Column(String(255), nullable=False)

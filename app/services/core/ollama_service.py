@@ -59,17 +59,27 @@ class OllamaService:
         context: Optional[str] = None,
         conversation_history: Optional[List[Dict[str, str]]] = None,
     ) -> str:
+        messages = self._build_messages(user_message, context, conversation_history)
+        return self.generate_completion(messages)
+
+    def generate_completion(
+        self,
+        messages: List[Dict[str, str]],
+        max_tokens: Optional[int] = None,
+        temperature: Optional[float] = None,
+        fallback_message: Optional[str] = None,
+        fallback_context: Optional[str] = None,
+    ) -> str:
+        """Gera resposta a partir de mensagens no formato chat."""
         if not self.client:
             return "Ollama não está disponível no momento. Verifique se o servidor está em execução."
-
-        messages = self._build_messages(user_message, context, conversation_history)
 
         try:
             resp = self.client.chat.completions.create(
                 model=self.model,
                 messages=messages,
-                max_tokens=self.max_tokens,
-                temperature=self.temperature,
+                max_tokens=max_tokens or self.max_tokens,
+                temperature=self.temperature if temperature is None else temperature,
             )
             content = resp.choices[0].message.content
             logger.info(f"OllamaService: resposta gerada ({len(content)} chars)")

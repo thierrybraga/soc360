@@ -126,6 +126,7 @@ async function saveAsset(e) {
         vendor_name: document.getElementById('asset-vendor-name')?.value || '',
         product_name: document.getElementById('asset-product-name')?.value || '',
         model: document.getElementById('asset-model')?.value || '',
+        version: document.getElementById('asset-version')?.value || '',
         os_name: document.getElementById('asset-os-name')?.value || '',
         os_version: document.getElementById('asset-os-version')?.value || '',
         criticality: document.getElementById('asset-criticality').value,
@@ -160,20 +161,18 @@ async function saveAsset(e) {
         const result = await response.json();
 
         if (response.ok) {
-            window.OpenMonitor?.showToast(result.message || 'Ativo criado com sucesso!', 'success');
+            const cvesFound = result.correlation?.matched_cves || 0;
+            const msg = cvesFound > 0
+                ? `Ativo criado com sucesso! ${cvesFound} CVE(s) correlacionada(s).`
+                : (result.message || 'Ativo criado com sucesso!');
+            window.OpenMonitor?.showToast(msg, 'success');
 
-            // Log correlation results if any
-            if (result.correlation) {
-                console.log('Correlation results:', result.correlation);
-                if (result.correlation.matched_cves > 0) {
-                    window.OpenMonitor?.showToast(`${result.correlation.matched_cves} CVE(s) correspondente(s) encontrada(s).`, 'info');
-                }
-            }
-            
-            // Redirect to inventory list after short delay
+            // Redirect to asset detail so the user immediately sees the
+            // correlated CVEs — fall back to list if no asset id returned.
+            const assetId = result.asset?.id;
             setTimeout(() => {
-                window.location.href = '/assets/';
-            }, 2000);
+                window.location.href = assetId ? `/assets/${assetId}` : '/assets/';
+            }, 1200);
         } else {
             throw new Error(result.error || result.message || 'Falha ao criar ativo.');
         }
@@ -240,62 +239,199 @@ async function loadParentAssets() {
     }
 }
 
+// Per-profile heuristics: model token → { product, osName }
+// Each entry is [tokenSubstring, productKey, osNameHint]
+const PROFILE_MODEL_RULES = {
+    fortinet: [
+        [['fg', 'fortigate'],             'fortigate',     'FortiOS'],
+        [['fmg', 'fortimanager'],         'fortimanager',  'FortiOS'],
+        [['faz', 'fortianalyzer'],        'fortianalyzer', 'FortiOS'],
+        [['fsw', 'fortiswitch'],          'fortiswitch',   'FortiOS'],
+        [['fap', 'fortiap'],              'fortiap',       'FortiOS'],
+        [['fml', 'fortimail'],            'fortimail',     'FortiOS'],
+        [['fwb', 'fortiweb'],             'fortiweb',      'FortiOS'],
+        [['fsb', 'fortisandbox'],         'fortisandbox',  'FortiOS'],
+    ],
+    cisco_meraki: [
+        [['mx'],  'meraki_mx',        'Meraki Firmware'],
+        [['mr'],  'meraki_mr',        'Meraki Firmware'],
+        [['ms'],  'meraki_ms',        'Meraki Firmware'],
+        [['mv'],  'meraki_mv',        'Meraki Firmware'],
+    ],
+    sophos: [
+        [['xg', 'sfos'],              'xg_firewall',    'SFOS'],
+        [['central'],                 'sophos_central', null],
+        [['intercept', 'endpoint'],   'intercept_x',    null],
+    ],
+    wazuh: [
+        [['manager'],  'wazuh_manager',   null],
+        [['agent'],    'wazuh_agent',     null],
+        [['dashboard'],'wazuh_dashboard', null],
+    ],
+    umbrella: [
+        [['roaming', 'client'],        'umbrella_roaming_client', null],
+        [['va', 'virtual appliance'],  'umbrella_va',             null],
+        [['dashboard'],                'umbrella_dashboard',      null],
+    ],
+    zabbix: [
+        [['server'],  'zabbix_server',  null],
+        [['agent'],   'zabbix_agent',   null],
+        [['proxy'],   'zabbix_proxy',   null],
+    ],
+    palo_alto: [
+        [['pa-', 'pa', 'panos', 'pan-os'], 'pan_os',        'PAN-OS'],
+        [['globalprotect', 'gp'],          'globalprotect', null],
+        [['prisma'],                       'prisma_access', null],
+    ],
+    cisco_secure: [
+        [['asa'],            'adaptive_security_appliance', null],
+        [['ftd', 'firepower'],'firepower_threat_defense',   null],
+        [['nexus', 'nx'],    'nx_os',                       'NX-OS'],
+        [['xe'],             'ios_xe',                      'IOS XE'],
+        [['xr'],             'ios_xr',                      'IOS XR'],
+        [['isr', 'asr', 'catalyst', 'ios'], 'ios',         'IOS'],
+    ],
+    check_point: [
+        [['quantum', 'sg'],  'quantum_security_gateway', 'Gaia OS'],
+        [['gaia'],           'gaia_os',                  'Gaia OS'],
+    ],
+    juniper: [
+        [['evolved'],              'junos_os_evolved', 'Junos OS Evolved'],
+        [['srx', 'mx', 'ex', 'qfx', 'junos'], 'junos', 'Junos OS'],
+    ],
+    sonicwall: [
+        [['tz', 'nsa', 'nsv', 'soho'], 'sonicos',                  'SonicOS'],
+        [['gms'],                      'global_management_system', null],
+    ],
+    watchguard: [
+        [['firebox', 't', 'm'], 'fireware', 'Fireware OS'],
+    ],
+    barracuda: [
+        [['cgf', 'cloudgen'], 'cloudgen_firewall',       null],
+        [['waf'],             'web_application_firewall', null],
+    ],
+    forcepoint: [
+        [['ngfw'], 'next_generation_firewall', null],
+        [['smc'],  'ngfw_security_management_center', null],
+    ],
+    pfsense: [
+        [['plus'],    'pfsense_plus', 'pfSense Plus'],
+        [['pfsense'], 'pfsense',      'pfSense'],
+    ],
+    mikrotik: [
+        [['ccr', 'crs', 'hap', 'rb', 'routeros'], 'routeros', 'RouterOS'],
+    ],
+    ubiquiti: [
+        [['edgerouter', 'er-', 'edgeos'], 'edgeos', 'EdgeOS'],
+        [['udm', 'usg', 'unifi', 'dream'],'unifi',  'UniFi OS'],
+        [['airos', 'airmax'],             'airos',  'airOS'],
+    ],
+    arista: [
+        [['cloudvision', 'cvp'], 'cloudvision', null],
+        [['eos'],                'eos',         'Arista EOS'],
+    ],
+    aruba: [
+        [['cx', 'aoscx'],     'arubaos_cx',              'ArubaOS-CX'],
+        [['iap', 'instant'],  'instant',                 'Instant'],
+        [['clearpass', 'cppm'],'clearpass_policy_manager', null],
+        [['arubaos', 'aos'],  'arubaos',                 'ArubaOS'],
+    ],
+    huawei: [
+        [['usg'], 'usg', 'VRP'],
+        [['ar', 'ne', 'vrp'], 'vrp', 'VRP'],
+    ],
+    zyxel: [
+        [['usg', 'flex'], 'usg_flex', 'ZLD'],
+        [['atp'],         'atp',      'ZLD'],
+        [['zld'],         'zld',      'ZLD'],
+    ],
+    netgear: [
+        [['rax', 'r7000', 'r8000', 'nighthawk'], 'nighthawk', null],
+        [['fvs', 'prosafe'],                     'prosafe',   null],
+    ],
+    tp_link: [
+        [['archer', 'ax'], 'archer', null],
+        [['omada', 'er', 'tl'], 'omada', null],
+    ],
+    dlink: [
+        [['dir'], 'dir', null],
+        [['dsr'], 'dsr', null],
+    ],
+    asus: [
+        [['merlin', 'asuswrt'], 'asuswrt', 'AsusWRT'],
+        [['rt-', 'rt'],         'rt',      'AsusWRT'],
+    ],
+};
+
+// Default OS name per profile when no model-specific rule matches
+const PROFILE_DEFAULT_OS = {
+    fortinet:     'FortiOS',
+    cisco_meraki: 'Meraki Firmware',
+    sophos:       'SFOS',
+    wazuh:        null,
+    umbrella:     null,
+    zabbix:       null,
+    palo_alto:    'PAN-OS',
+    cisco_secure: 'IOS',
+    check_point:  'Gaia OS',
+    juniper:      'Junos OS',
+    sonicwall:    'SonicOS',
+    watchguard:   'Fireware OS',
+    barracuda:    null,
+    forcepoint:   null,
+    pfsense:      'pfSense',
+    mikrotik:     'RouterOS',
+    ubiquiti:     null,
+    arista:       'Arista EOS',
+    aruba:        'ArubaOS',
+    huawei:       'VRP',
+    zyxel:        'ZLD',
+    netgear:      null,
+    tp_link:      null,
+    dlink:        null,
+    asus:         'AsusWRT',
+};
+
 function applyVendorProfile() {
     const profileKey = document.getElementById('asset-vendor-profile')?.value;
     const profile = vendorProfiles[profileKey];
     if (!profile) return;
-    const vendorInput = document.getElementById('asset-vendor-name');
+
+    const vendorInput  = document.getElementById('asset-vendor-name');
     const productInput = document.getElementById('asset-product-name');
-    const modelInput = document.getElementById('asset-model');
+    const modelInput   = document.getElementById('asset-model');
+    const osNameInput  = document.getElementById('asset-os-name');
+    const modelValue   = (modelInput?.value || '').toLowerCase();
+
+    // Always fill vendor name if blank
     if (vendorInput && !vendorInput.value) {
         vendorInput.value = profile.vendor_name;
     }
-    const osNameInput = document.getElementById('asset-os-name');
-    if (profile.key === 'fortinet' && osNameInput && !osNameInput.value) {
-        osNameInput.value = 'FortiOS';
-    } else if (profile.key === 'cisco_meraki' && osNameInput && !osNameInput.value) {
-        osNameInput.value = 'Meraki Firmware';
+
+    const rules = PROFILE_MODEL_RULES[profileKey] || [];
+    let matchedProduct = null;
+    let matchedOsName  = null;
+
+    for (const [tokens, productKey, osName] of rules) {
+        if (tokens.some(t => modelValue.includes(t))) {
+            matchedProduct = productKey;
+            matchedOsName  = osName;
+            break;
+        }
     }
-    if (productInput && !productInput.value && Array.isArray(profile.products) && profile.products.length > 0) {
-        const modelValue = (modelInput?.value || '').toLowerCase();
-        if (profile.key === 'fortinet') {
-            if (modelValue.includes('fg') || modelValue.includes('fortigate')) {
-                productInput.value = 'fortigate';
-            } else if (modelValue.includes('fmg') || modelValue.includes('fortimanager')) {
-                productInput.value = 'fortimanager';
-            } else if (modelValue.includes('faz') || modelValue.includes('fortianalyzer')) {
-                productInput.value = 'fortianalyzer';
-            } else if (modelValue.includes('fsw') || modelValue.includes('fortiswitch')) {
-                productInput.value = 'fortiswitch';
-            } else if (modelValue.includes('fap') || modelValue.includes('fortiap')) {
-                productInput.value = 'fortiap';
-            } else if (modelValue.includes('fml') || modelValue.includes('fortimail')) {
-                productInput.value = 'fortimail';
-            } else if (modelValue.includes('fwb') || modelValue.includes('fortiweb')) {
-                productInput.value = 'fortiweb';
-            } else {
-                productInput.value = 'fortios'; // Default for Fortinet
-            }
-            return;
-        }
-        if (profile.key === 'cisco_meraki') {
-            if (modelValue.startsWith('mx')) {
-                productInput.value = 'meraki_mx';
-                return;
-            }
-            if (modelValue.startsWith('mr')) {
-                productInput.value = 'meraki_mr';
-                return;
-            }
-            if (modelValue.startsWith('ms')) {
-                productInput.value = 'meraki_ms';
-                return;
-            }
-            if (modelValue.startsWith('mv')) {
-                productInput.value = 'meraki_mv';
-                return;
-            }
-        }
-        productInput.value = profile.products[0].key;
+
+    // Fallback: first product in profile
+    if (!matchedProduct && Array.isArray(profile.products) && profile.products.length > 0) {
+        matchedProduct = profile.products[0].key;
+    }
+    if (!matchedOsName) {
+        matchedOsName = PROFILE_DEFAULT_OS[profileKey] || null;
+    }
+
+    if (productInput && !productInput.value && matchedProduct) {
+        productInput.value = matchedProduct;
+    }
+    if (osNameInput && !osNameInput.value && matchedOsName) {
+        osNameInput.value = matchedOsName;
     }
 }

@@ -20,7 +20,21 @@ x-app-defaults: &app-defaults
     - FLASK_DEBUG=0
     - PYTHONPATH=/app
     - SECRET_KEY_FILE=/run/secrets/secret_key
-    - DATABASE_URL=sqlite:///instance/app.db
+
+    # PostgreSQL (obrigatório em produção — SQLite é apenas para modo local).
+    # core (bind default) e public apontam para o MESMO banco físico, pois há
+    # relacionamentos cross-bind (ex.: M2M vulnerability_organizations) que só
+    # funcionam co-locados. A senha vem do secret postgres_password (o
+    # entrypoint a propaga para DB_*_PASSWORD e monta a DATABASE_URL).
+    - DB_CORE_HOST=postgres
+    - DB_CORE_PORT=5432
+    - DB_CORE_NAME=${POSTGRES_DB:-soc360}
+    - DB_CORE_USER=${POSTGRES_USER:-soc360}
+    - DB_PUBLIC_HOST=postgres
+    - DB_PUBLIC_PORT=5432
+    - DB_PUBLIC_NAME=${POSTGRES_DB:-soc360}
+    - DB_PUBLIC_USER=${POSTGRES_USER:-soc360}
+    - POSTGRES_PASSWORD_FILE=/run/secrets/postgres_password
 
     # Redis (obrigatório)
     - REDIS_HOST=redis
@@ -135,6 +149,8 @@ services:
     <<: *app-defaults
     container_name: soc360-app
     depends_on:
+      postgres:
+        condition: service_healthy
       redis:
         condition: service_healthy
     entrypoint: ["/entrypoint.sh"]
@@ -142,6 +158,7 @@ services:
     secrets:
       - secret_key
       - redis_password
+      - postgres_password
 
   # -------------------------------------------------------------------------
   # Celery Worker
@@ -151,6 +168,8 @@ services:
     container_name: soc360-celery-worker
     depends_on:
       app:
+        condition: service_healthy
+      postgres:
         condition: service_healthy
       redis:
         condition: service_healthy
@@ -172,6 +191,7 @@ services:
     secrets:
       - secret_key
       - redis_password
+      - postgres_password
 
   # -------------------------------------------------------------------------
   # Celery Beat (Scheduler)
@@ -181,6 +201,8 @@ services:
     container_name: soc360-celery-beat
     depends_on:
       app:
+        condition: service_healthy
+      postgres:
         condition: service_healthy
       redis:
         condition: service_healthy
@@ -192,6 +214,7 @@ services:
     secrets:
       - secret_key
       - redis_password
+      - postgres_password
     deploy:
       resources:
         limits:
@@ -200,6 +223,43 @@ services:
         reservations:
           cpus: '0.1'
           memory: 128M
+
+  # -------------------------------------------------------------------------
+  # PostgreSQL (banco primário — core + public)
+  # -------------------------------------------------------------------------
+  postgres:
+    image: postgres:16-alpine
+    container_name: soc360-postgres
+    restart: unless-stopped
+    environment:
+      - POSTGRES_USER=${POSTGRES_USER:-soc360}
+      - POSTGRES_DB=${POSTGRES_DB:-soc360}
+      - POSTGRES_PASSWORD_FILE=/run/secrets/postgres_password
+      # Inicialização determinística e collation estável
+      - POSTGRES_INITDB_ARGS=--encoding=UTF8 --locale=C
+    volumes:
+      - soc360-postgres-data:/var/lib/postgresql/data
+    networks:
+      - soc360-network
+    # Porta exposta apenas se DB_EXPOSE definido (vazio = somente interno)
+    ports:
+      - "${DB_EXPOSE:-127.0.0.1:5432}:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-soc360} -d ${POSTGRES_DB:-soc360}"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
+    deploy:
+      resources:
+        limits:
+          cpus: '2'
+          memory: 2G
+        reservations:
+          cpus: '0.25'
+          memory: 256M
+    secrets:
+      - postgres_password
 
   # -------------------------------------------------------------------------
   # Redis (Cache, Sessions, Celery Broker)
@@ -238,6 +298,8 @@ secrets:
     file: ./secrets/secret_key.txt
   redis_password:
     file: ./secrets/redis_password.txt
+  postgres_password:
+    file: ./secrets/postgres_password.txt
 
 # =============================================================================
 # NETWORKS & VOLUMES
@@ -257,3 +319,4 @@ volumes:
   soc360-nginx-logs:
   soc360-static:
   soc360-redis-data:
+  soc360-postgres-data:

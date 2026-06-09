@@ -66,10 +66,56 @@ if [ ${#SECRET_KEY} -lt 32 ]; then
     exit 1
 fi
 
-# Set default database URLs if not provided
-if [ -z "$DATABASE_URL" ]; then
+# -------------------------------------------------------------------------
+# Database configuration
+# PostgreSQL é o backend padrão no container. SQLite SÓ é usado quando nenhum
+# host Postgres está configurado (DB_CORE_HOST vazio = modo local).
+# -------------------------------------------------------------------------
+if [ -n "$DB_CORE_HOST" ]; then
+    # Propaga a senha do Postgres (secret) para as variáveis que o app consome
+    if [ -n "$POSTGRES_PASSWORD" ]; then
+        export DB_CORE_PASSWORD="${DB_CORE_PASSWORD:-$POSTGRES_PASSWORD}"
+        export DB_PUBLIC_PASSWORD="${DB_PUBLIC_PASSWORD:-$POSTGRES_PASSWORD}"
+    fi
+    # Monta DATABASE_URL — usada na detecção de tipos (força JSONB/INET/GIN)
+    if [ -z "$DATABASE_URL" ]; then
+        export DATABASE_URL="postgresql://${DB_CORE_USER}:${DB_CORE_PASSWORD}@${DB_CORE_HOST}:${DB_CORE_PORT:-5432}/${DB_CORE_NAME}"
+    fi
+    log_info "Using PostgreSQL at ${DB_CORE_HOST}:${DB_CORE_PORT:-5432}/${DB_CORE_NAME}"
+
+    # Espera ativa pelo Postgres antes de prosseguir (todos os papéis)
+    log_info "Waiting for PostgreSQL to become available..."
+    python - <<'PYWAIT'
+import os, sys, time
+import psycopg2
+params = dict(
+    host=os.environ.get('DB_CORE_HOST'),
+    port=int(os.environ.get('DB_CORE_PORT', '5432')),
+    dbname=os.environ.get('DB_CORE_NAME', 'soc360'),
+    user=os.environ.get('DB_CORE_USER', 'soc360'),
+    password=os.environ.get('DB_CORE_PASSWORD', ''),
+    connect_timeout=3,
+)
+for attempt in range(1, 61):
+    try:
+        psycopg2.connect(**params).close()
+        print(f"[OK] PostgreSQL reachable after {attempt} attempt(s)")
+        sys.exit(0)
+    except Exception as exc:
+        print(f"[wait] {attempt}/60 PostgreSQL not ready: {exc.__class__.__name__}")
+        time.sleep(2)
+print("[ERROR] PostgreSQL not reachable after 120s timeout")
+sys.exit(1)
+PYWAIT
+    if [ $? -ne 0 ]; then
+        log_error "PostgreSQL indisponível — abortando. SQLite só é permitido em modo local."
+        exit 1
+    fi
+    log_success "PostgreSQL is available"
+elif [ -z "$DATABASE_URL" ]; then
+    # Modo local sem Postgres configurado → SQLite
     export DATABASE_URL="sqlite:///app/instance/app.db"
-    log_info "Using default SQLite database"
+    log_info "No PostgreSQL host configured — using local SQLite database"
 fi
 
 log_success "Environment validation passed"

@@ -6,7 +6,6 @@ Importa todos os modelos necessários antes de criar as tabelas.
 import os
 import sys
 import logging
-from datetime import datetime, timezone
 
 from dotenv import load_dotenv
 from sqlalchemy import text
@@ -100,7 +99,7 @@ def main():
             logger.info("Database connection OK")
         except Exception as e:
             logger.error(f"Database connection failed: {e}")
-            return
+            return 1
         
         # 3. Criar todas as tabelas
         logger.info("Creating database tables...")
@@ -111,109 +110,22 @@ def main():
             logger.error(f"Error creating tables: {e}")
             import traceback
             traceback.print_exc()
-            return
+            return 1
         
-        # 4. Agora executar o sync full
-        from app.jobs.fetchers import NVDFetcher
-        from app.services.nvd.bulk_database_service import BulkDatabaseService
-        
-        # Reset metadata
-        now = datetime.now(timezone.utc).isoformat()
-        SyncMetadata.set('nvd_sync_progress_status', 'running')
-        SyncMetadata.set('nvd_sync_progress_processed_cves', 0)
-        SyncMetadata.set('nvd_sync_progress_total_cves', 0)
-        SyncMetadata.set('nvd_sync_progress_inserted', 0)
-        SyncMetadata.set('nvd_sync_progress_updated', 0)
-        SyncMetadata.set('nvd_sync_progress_errors', 0)
-        SyncMetadata.set('nvd_sync_progress_message', 'Initializing')
-        SyncMetadata.set('nvd_sync_progress_started_at', now)
-        
-        # Services
-        fetcher = NVDFetcher()
-        db_service = BulkDatabaseService()
-        
-        db_service.stats = {
-            'inserted': 0,
-            'updated': 0,
-            'errors': 0,
-            'skipped': 0
-        }
-        
-        # Windows
-        start_date = datetime(1999, 1, 1, tzinfo=timezone.utc)
-        end_date = datetime.now(timezone.utc)
-        
-        windows = fetcher.generate_date_windows(start_date, end_date)
-        logger.info(f"Generated {len(windows)} windows")
-        
-        # Calcular total
-        logger.info("Calculating total CVEs...")
-        total = 0
-        for i, (start, end) in enumerate(windows):
-            try:
-                resp = fetcher.fetch_page(
-                    results_per_page=1,
-                    pub_start_date=start,
-                    pub_end_date=end
-                )
-                if resp:
-                    total += resp.total_results
-                    if i % 5 == 0:
-                        SyncMetadata.set('nvd_sync_progress_total_cves', total)
-            except Exception as e:
-                logger.error(f"Error counting window {i+1}: {e}")
-        
-        logger.info(f"Total CVEs: {total}")
-        SyncMetadata.set('nvd_sync_progress_total_cves', total)
-        SyncMetadata.set('nvd_sync_progress_message', 'Downloading CVEs')
-        
-        # Processar windows
-        processed = 0
-        for i, (start, end) in enumerate(windows):
-            logger.info(f"[{i+1}/{len(windows)}] {start.date()} → {end.date()}")
-            
-            SyncMetadata.set('nvd_sync_progress_current_window', i + 1)
-            SyncMetadata.set('nvd_sync_progress_total_windows', len(windows))
-            
-            def fetch_progress(current, total):
-                SyncMetadata.set(
-                    'nvd_sync_progress_processed_cves',
-                    processed + current
-                )
-            
-            def db_progress(_, __, stats):
-                SyncMetadata.set('nvd_sync_progress_inserted', stats['inserted'])
-                SyncMetadata.set('nvd_sync_progress_updated', stats['updated'])
-                SyncMetadata.set('nvd_sync_progress_errors', stats['errors'])
-            
-            try:
-                vulns = fetcher.fetch_all_pages(
-                    pub_start_date=start,
-                    pub_end_date=end,
-                    progress_callback=fetch_progress
-                )
-                
-                if vulns:
-                    logger.info(f"Saving {len(vulns)} CVEs...")
-                    db_service.process_vulnerabilities(
-                        vulns,
-                        progress_callback=db_progress
-                    )
-                    processed += len(vulns)
-                    SyncMetadata.set(
-                        'nvd_sync_progress_processed_cves',
-                        processed
-                    )
-            except Exception as e:
-                logger.error(f"Error in window {i+1}: {e}")
-        
-        # Finalizar
-        SyncMetadata.set('nvd_sync_progress_status', 'completed')
-        SyncMetadata.set('nvd_last_successful_sync', datetime.now(timezone.utc).isoformat())
-        SyncMetadata.set('nvd_first_sync_completed', 'true')
-        
-        logger.info(f"Sync completed. Total processed: {processed}")
+        # 4. Executar o sync full pelo orquestrador central.
+        # Isso reutiliza lock persistente, cancelamento, watermark correto,
+        # deduplicacao e o mesmo fluxo usado pela UI/Celery.
+        from app.services.nvd.nvd_sync_service import NVDSyncService, SyncMode
+
+        service = NVDSyncService()
+        started = service.start_sync(mode=SyncMode.FULL, async_mode=False)
+        if not started:
+            logger.error("NVD sync is already running")
+            return 1
+
+        logger.info("Full NVD sync finished with status: %s", service.get_progress().get('status'))
+        return 0
 
 
 if __name__ == "__main__":
-    main()
+    raise SystemExit(main())

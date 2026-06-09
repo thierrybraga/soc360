@@ -353,6 +353,7 @@ def settings():
             active_tab='tacacs',
             **tacacs_ctx,
             **_build_openai_context(),
+            **_build_umbrella_context(),
         )
 
     # Fallback — unknown submit button
@@ -369,6 +370,7 @@ def _render_settings(profile_form, password_form, api_key_form, active_tab='prof
         active_tab=active_tab,
         **_build_tacacs_context(),
         **_build_openai_context(),
+        **_build_umbrella_context(),
     )
 
 
@@ -376,7 +378,10 @@ def _build_tacacs_context():
     """Assemble the TACACS+ context dict passed to the settings template."""
     from app.services.auth import TacacsService
     cfg = TacacsService.load_config()
+    # formdata=None prevents WTForms from reading request.form during other form
+    # POSTs (e.g. profile save), which would wipe all TACACS fields with blanks.
     tacacs_form = TacacsConfigForm(
+        formdata=None,
         enabled=cfg.enabled,
         host=cfg.host,
         port=cfg.port,
@@ -399,4 +404,12 @@ def _build_openai_context():
     from app.services.core.openai_config_service import OpenAIConfigService
     return {
         'openai_config': OpenAIConfigService.status(),
+    }
+
+
+def _build_umbrella_context():
+    """Cisco Umbrella admin configuration status for the settings template."""
+    from app.services.umbrella.umbrella_config_service import UmbrellaConfigService
+    return {
+        'umbrella_config': UmbrellaConfigService.status(),
     }

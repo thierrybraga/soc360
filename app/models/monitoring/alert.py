@@ -14,7 +14,6 @@ class Alert(CoreModel):
     Model de alerta gerado pelo sistema.
     """
     __tablename__ = 'alerts'
-    __bind_key__ = 'core'
 
     # Identificação
     title = Column(String(255), nullable=False)

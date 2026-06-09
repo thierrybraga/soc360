@@ -57,28 +57,50 @@ class OpenAIService:
         """
         Gera uma resposta de chat usando a API da OpenAI.
         """
+        messages = self._build_messages(
+            user_message,
+            context,
+            conversation_history
+        )
+        return self.generate_completion(
+            messages,
+            max_tokens=self.max_tokens,
+            temperature=self.temperature,
+            fallback_message=user_message,
+            fallback_context=context,
+        )
+
+    def generate_completion(
+        self,
+        messages: List[Dict[str, str]],
+        max_tokens: Optional[int] = None,
+        temperature: Optional[float] = None,
+        fallback_message: Optional[str] = None,
+        fallback_context: Optional[str] = None,
+    ) -> str:
+        """Gera resposta a partir de uma lista de mensagens no formato chat."""
         if not self.client:
             logger.info("Modo demo ativo - retornando resposta simulada")
-            return self._generate_demo_response(user_message, context)
-
-        try:
-            messages = self._build_messages(
-                user_message,
-                context,
-                conversation_history
+            return self._generate_demo_response(
+                fallback_message or self._last_user_message(messages),
+                fallback_context,
             )
 
+        try:
             response = self.client.chat.completions.create(
                 model=self.model,
                 messages=messages,
-                max_tokens=self.max_tokens,
-                temperature=self.temperature
+                max_tokens=max_tokens or self.max_tokens,
+                temperature=self.temperature if temperature is None else temperature
             )
 
             assistant_message = (response.choices[0].message.content or '').strip()
             if not assistant_message:
                 logger.warning("OpenAI retornou resposta vazia - usando modo demo")
-                return self._generate_demo_response(user_message, context)
+                return self._generate_demo_response(
+                    fallback_message or self._last_user_message(messages),
+                    fallback_context,
+                )
 
             usage = getattr(response, 'usage', None)
             total_tokens = getattr(usage, 'total_tokens', None)
@@ -87,22 +109,22 @@ class OpenAIService:
 
         except AuthenticationError:
             logger.error("Erro de autenticacao OpenAI - usando modo demo")
-            return self._generate_demo_response(user_message, context)
+            return self._generate_demo_response(fallback_message or self._last_user_message(messages), fallback_context)
         except RateLimitError:
             logger.error("Rate limit OpenAI atingido - usando modo demo")
-            return self._generate_demo_response(user_message, context)
+            return self._generate_demo_response(fallback_message or self._last_user_message(messages), fallback_context)
         except APITimeoutError:
             logger.error("Timeout OpenAI - usando modo demo")
-            return self._generate_demo_response(user_message, context)
+            return self._generate_demo_response(fallback_message or self._last_user_message(messages), fallback_context)
         except APIConnectionError:
             logger.error("Erro de rede OpenAI - usando modo demo")
-            return self._generate_demo_response(user_message, context)
+            return self._generate_demo_response(fallback_message or self._last_user_message(messages), fallback_context)
         except APIError as e:
             logger.error("Erro API OpenAI status=%s - usando modo demo", getattr(e, 'status_code', 'unknown'))
-            return self._generate_demo_response(user_message, context)
+            return self._generate_demo_response(fallback_message or self._last_user_message(messages), fallback_context)
         except Exception as e:
             logger.error("Erro ao gerar resposta OpenAI (%s) - usando modo demo", e.__class__.__name__)
-            return self._generate_demo_response(user_message, context)
+            return self._generate_demo_response(fallback_message or self._last_user_message(messages), fallback_context)
 
     def _build_messages(
         self,
@@ -225,6 +247,12 @@ Patch Disponivel: {'Sim' if cve_data.get('patch_available') else 'Nao'}
         else:
             return f"Entendi sua pergunta sobre '{user_message}'. Como assistente de seguranca, posso fornecer informacoes sobre vulnerabilidades e riscos. Para uma resposta mais precisa, uma chave valida da API OpenAI seria necessaria. Como posso ajudar com questoes de seguranca?"
 
+    def _last_user_message(self, messages: Optional[List[Dict[str, str]]]) -> str:
+        for message in reversed(messages or []):
+            if message.get('role') == 'user':
+                return message.get('content', '')
+        return ''
+
     def check_api_health(self) -> bool:
         """
         Verifica se a API da OpenAI esta acessivel.
@@ -237,3 +265,13 @@ Patch Disponivel: {'Sim' if cve_data.get('patch_available') else 'Nao'}
         if not result.get('ok'):
             logger.error("API OpenAI nao esta acessivel: %s", result.get('message'))
         return bool(result.get('ok'))
+
+    def check_health(self) -> Dict[str, Any]:
+        """Interface comum de health check usada pelo chatbot."""
+        healthy = self.check_api_health()
+        return {
+            'ok': healthy,
+            'provider': 'openai',
+            'model': self.model,
+            'demo_mode': self.client is None,
+        }

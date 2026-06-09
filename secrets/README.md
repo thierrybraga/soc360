@@ -10,6 +10,7 @@ Este diretório contém os arquivos de secret para o Docker secrets (Linux/OL9).
 |---------|-----------|
 | `secret_key.txt` | Chave Flask `SECRET_KEY` (≥ 64 chars hex) |
 | `redis_password.txt` | Senha do Redis (≥ 48 chars hex) |
+| `postgres_password.txt` | Senha do PostgreSQL (usada pelo serviço `postgres` e pelo app) |
 
 ## Geração automática
 
@@ -26,6 +27,9 @@ openssl rand -hex 32 > secrets/secret_key.txt
 
 # redis_password.txt
 openssl rand -hex 24 > secrets/redis_password.txt
+
+# postgres_password.txt (sem newline final)
+printf '%s' "$(openssl rand -hex 24)" > secrets/postgres_password.txt
 
 # Permissões restritas (obrigatório em produção)
 chmod 600 secrets/*.txt

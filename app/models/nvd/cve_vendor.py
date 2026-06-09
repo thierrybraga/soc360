@@ -3,9 +3,9 @@ SOC360 CVE Vendor Model
 Association table: Vulnerability <-> Vendor (Many-to-Many).
 Note: No FK to vendors table as it's in a different database bind.
 """
-from datetime import datetime
 from sqlalchemy import Column, String, Integer, DateTime, ForeignKey, PrimaryKeyConstraint
 from app.extensions.db import db
+from app.models.system.base_model import utcnow_naive
 
 
 class CVEVendor(db.Model):
@@ -25,7 +25,7 @@ class CVEVendor(db.Model):
         Integer,
         nullable=False, index=True
     )
-    created_at = Column(DateTime, default=datetime.utcnow)
+    created_at = Column(DateTime, default=utcnow_naive)
 
     __table_args__ = (
         PrimaryKeyConstraint('cve_id', 'vendor_id', name='pk_cve_vendor'),

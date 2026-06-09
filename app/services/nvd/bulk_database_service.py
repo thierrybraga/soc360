@@ -3,7 +3,7 @@ SOC360 Bulk Database Service
 Operações de inserção em lote para CVEs do NVD.
 """
 import logging
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Dict, List, Optional, Any
 from contextlib import contextmanager
 
@@ -26,6 +26,26 @@ def _is_sqlite() -> bool:
 def _insert():
     """Return the correct dialect insert function for the active database."""
     return _sqlite_insert if _is_sqlite() else _pg_insert
+
+
+def _dedupe(records: list, key_fields: tuple) -> list:
+    """Remove duplicatas por chave de conflito, preservando a ÚLTIMA ocorrência.
+
+    PostgreSQL recusa um ``INSERT ... ON CONFLICT DO UPDATE`` cujo VALUES contém
+    a mesma chave de conflito duas vezes ("command cannot affect row a second
+    time"). O NVD pode repetir o mesmo CVE entre páginas durante modificação
+    ativa; sem deduplicar, a exceção derruba o batch inteiro (perda de dados).
+    """
+    deduped = {}
+    for rec in records:
+        key = tuple(rec.get(f) for f in key_fields)
+        deduped[key] = rec  # última ocorrência vence
+    return list(deduped.values())
+
+
+def _utcnow_naive() -> datetime:
+    """Return UTC now as naive datetime for existing DateTime columns."""
+    return datetime.now(timezone.utc).replace(tzinfo=None)
 
 from app.extensions import db
 from app.models.nvd import Vulnerability, CvssMetric, Weakness, Reference, Mitigation, Credit, AffectedProduct
@@ -75,17 +95,28 @@ class BulkDatabaseService:
             # Ensure all tables exist
             db.create_all()
 
-            # Use the session-configured engine (respects SQLite fallback)
-            engine = db.engine
+            # Prefer the public bind because all NVD tables live there.
+            engine = db.engines.get('public') or db.engine
             inspector = inspect(engine)
 
             if inspector.has_table("vulnerabilities"):
                 try:
                     with engine.connect() as conn:
-                        if _is_sqlite():
+                        if engine.dialect.name == 'sqlite':
                             # SQLite: no TRUNCATE, no CASCADE — delete in order
-                            for tbl in ('cvss_metrics', 'weaknesses', 'references',
-                                        'credits', 'affected_products', 'vulnerabilities'):
+                            for tbl in (
+                                'cvss_metrics',
+                                'weaknesses',
+                                'references',
+                                'credits',
+                                'affected_products',
+                                'mitigations',
+                                'cve_products',
+                                'cve_vendors',
+                                'version_ref',
+                                'cve_d3fend_correlations',
+                                'vulnerabilities',
+                            ):
                                 if inspector.has_table(tbl):
                                     conn.execute(text(f'DELETE FROM "{tbl}"'))
                         else:
@@ -114,7 +145,8 @@ class BulkDatabaseService:
     def process_vulnerabilities(
         self,
         vulnerabilities: List[Dict],
-        progress_callback: Optional[callable] = None
+        progress_callback: Optional[callable] = None,
+        fail_on_error: bool = True,
     ) -> Dict[str, int]:
         """
         Processar lista de vulnerabilidades do NVD.
@@ -122,6 +154,7 @@ class BulkDatabaseService:
         Args:
             vulnerabilities: Lista de CVEs do NVD API
             progress_callback: Callback(processed, total, stats)
+            fail_on_error: Interrompe o processamento no primeiro batch com erro
             
         Returns:
             Estatísticas de processamento
@@ -143,6 +176,8 @@ class BulkDatabaseService:
             except Exception as e:
                 logger.error(f'Batch processing error: {e}')
                 self.stats['errors'] += len(batch)
+                if fail_on_error:
+                    raise
         
         logger.info(
             f'Processing complete: {self.stats["inserted"]} inserted, '
@@ -212,6 +247,8 @@ class BulkDatabaseService:
 
             if reference_records:
                 self._upsert_references(reference_records)
+
+            cve_ids_in_batch = list(dict.fromkeys(cve_ids_in_batch))
 
             if credit_records:
                 self._upsert_credits(cve_ids_in_batch, credit_records)
@@ -527,12 +564,15 @@ class BulkDatabaseService:
                 if not vendor or vendor == '*' or not product or product == '*':
                     continue
 
+                # Só consideramos CPEs marcados como vulneráveis — evita criar
+                # AffectedProduct vazio para um par (vendor,product) que aparece
+                # apenas em nós não-vulneráveis (condição de "running on").
+                if not cpe_match.get('vulnerable', True):
+                    continue
+
                 key = (vendor, product)
                 if key not in seen:
                     seen[key] = {'versions': [], 'platforms': set()}
-
-                if not cpe_match.get('vulnerable', True):
-                    continue
 
                 # Build version range descriptor
                 ver_parts = []
@@ -574,6 +614,8 @@ class BulkDatabaseService:
         """Substituir créditos: delete existing + insert new."""
         if not cve_ids:
             return
+        cve_ids = list(dict.fromkeys(cve_ids))
+        records = _dedupe(records, ('cve_id', 'value', 'type', 'user'))
         db.session.execute(delete(Credit).where(Credit.cve_id.in_(cve_ids)))
         if records:
             ins = _insert()
@@ -585,6 +627,8 @@ class BulkDatabaseService:
         """Substituir produtos afetados: delete existing + insert new."""
         if not cve_ids:
             return
+        cve_ids = list(dict.fromkeys(cve_ids))
+        records = _dedupe(records, ('cve_id', 'vendor', 'product'))
         db.session.execute(delete(AffectedProduct).where(AffectedProduct.cve_id.in_(cve_ids)))
         if records:
             ins = _insert()
@@ -601,6 +645,10 @@ class BulkDatabaseService:
         if not records:
             return
 
+        # Dedup por cve_id: evita o erro ON CONFLICT do Postgres quando o mesmo
+        # CVE aparece duas vezes no batch (perda de dados).
+        records = _dedupe(records, ('cve_id',))
+
         use_sqlite = _is_sqlite()
         ins = _insert()
         chunk_size = 1000
@@ -608,6 +656,16 @@ class BulkDatabaseService:
 
         for i in range(0, total_records, chunk_size):
             chunk = records[i:i + chunk_size]
+            existing_ids = set()
+            if use_sqlite:
+                cve_ids = [record['cve_id'] for record in chunk]
+                existing_ids = {
+                    row[0]
+                    for row in db.session.query(Vulnerability.cve_id)
+                    .filter(Vulnerability.cve_id.in_(cve_ids))
+                    .all()
+                }
+
             stmt = ins(Vulnerability).values(chunk)
 
             update_dict = {
@@ -632,7 +690,7 @@ class BulkDatabaseService:
                 'patch_available': stmt.excluded.patch_available,
                 'patch_url': stmt.excluded.patch_url,
                 'raw_nvd_data': stmt.excluded.raw_nvd_data,
-                'updated_at': datetime.utcnow()
+                'updated_at': _utcnow_naive()
             }
 
             stmt = stmt.on_conflict_do_update(
@@ -648,13 +706,16 @@ class BulkDatabaseService:
                 self.stats['inserted'] += sum(1 for r in rows if r[0])
                 self.stats['updated'] += sum(1 for r in rows if not r[0])
             else:
-                result = db.session.execute(stmt)
-                self.stats['inserted'] += result.rowcount
+                db.session.execute(stmt)
+                self.stats['inserted'] += sum(1 for record in chunk if record['cve_id'] not in existing_ids)
+                self.stats['updated'] += sum(1 for record in chunk if record['cve_id'] in existing_ids)
     
     def _upsert_cvss(self, records: List[Dict]) -> None:
         """Upsert de métricas CVSS."""
         if not records:
             return
+
+        records = _dedupe(records, ('cve_id', 'version', 'source'))
 
         ins = _insert()
         chunk_size = 1000
@@ -684,7 +745,7 @@ class BulkDatabaseService:
                     'access_vector': stmt.excluded.access_vector,
                     'access_complexity': stmt.excluded.access_complexity,
                     'authentication': stmt.excluded.authentication,
-                    'updated_at': datetime.utcnow()
+                    'updated_at': _utcnow_naive()
                 }
             )
             
@@ -694,6 +755,8 @@ class BulkDatabaseService:
         """Upsert de CWEs."""
         if not records:
             return
+
+        records = _dedupe(records, ('cve_id', 'cwe_id', 'source'))
 
         ins = _insert()
         chunk_size = 1000
@@ -707,7 +770,7 @@ class BulkDatabaseService:
                 index_elements=['cve_id', 'cwe_id', 'source'],
                 set_={
                     'type': stmt.excluded.type,
-                    'updated_at': datetime.utcnow()
+                    'updated_at': _utcnow_naive()
                 }
             )
             
@@ -718,12 +781,16 @@ class BulkDatabaseService:
         if not records:
             return
 
+        # Dedup por (cve_id, url): refs duplicadas entre CVEs repetidos no batch
+        # causariam erro ON CONFLICT no Postgres.
+        records = _dedupe(records, ('cve_id', 'url'))
+
         # Chunking to avoid parameter limit (65535 parameters max in Postgres)
         # Each reference has ~9 parameters. 65535 / 9 ≈ 7281.
         # We use 1000 as a safe chunk size.
         chunk_size = 1000
         total_records = len(records)
-        
+
         ins = _insert()
         for i in range(0, total_records, chunk_size):
             chunk = records[i:i + chunk_size]
@@ -736,7 +803,7 @@ class BulkDatabaseService:
                     'is_patch': stmt.excluded.is_patch,
                     'is_vendor_advisory': stmt.excluded.is_vendor_advisory,
                     'is_exploit': stmt.excluded.is_exploit,
-                    'updated_at': datetime.utcnow()
+                    'updated_at': _utcnow_naive()
                 }
             )
             

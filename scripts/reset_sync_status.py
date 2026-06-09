@@ -40,6 +40,10 @@ def reset_sync_status():
                 SyncMetadata.set(status_key, 'idle')
                 SyncMetadata.set(f'{service}_sync_progress_message', 'Resetado manualmente')
                 print(f"✅ {service.upper()} status resetado para 'idle'")
+
+        SyncMetadata.delete('nvd_sync_lock')
+        SyncMetadata.set('nvd_sync_cancel_requested', 'false')
+        print("✅ Lock persistente da NVD limpo")
         
         print("\n✅ Todos os status verificados!")
 

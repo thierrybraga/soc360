@@ -539,11 +539,6 @@ class AIReportService:
             {'role': 'user', 'content': user_prompt},
         ]
 
-        # usa o cliente OpenAI-compatível diretamente (funciona tanto Ollama quanto OpenAI)
-        client = getattr(self.service, 'client', None)
-        if not client:
-            raise RuntimeError("Cliente de IA indisponível ou chave OpenAI não configurada")
-
         max_tokens = int(getattr(self.service, 'max_tokens', 2048))
         # relatórios precisam de mais espaço que uma resposta de chat
         max_tokens = max(max_tokens, 3000)
@@ -555,27 +550,39 @@ class AIReportService:
         )
 
         try:
-            resp = client.chat.completions.create(
-                model=self.model,
-                messages=messages,
-                max_tokens=max_tokens,
-                temperature=temperature,
-            )
+            if hasattr(self.service, 'generate_completion'):
+                markdown = self.service.generate_completion(
+                    messages,
+                    max_tokens=max_tokens,
+                    temperature=temperature,
+                    fallback_message=user_prompt,
+                )
+            else:
+                client = getattr(self.service, 'client', None)
+                if not client:
+                    raise RuntimeError("Cliente de IA indisponível")
+                resp = client.chat.completions.create(
+                    model=self.model,
+                    messages=messages,
+                    max_tokens=max_tokens,
+                    temperature=temperature,
+                )
+                markdown = (resp.choices[0].message.content or '').strip()
         except AuthenticationError as exc:
-            raise RuntimeError("Falha de autenticação na OpenAI") from exc
+            raise RuntimeError("Falha de autenticação no provedor de IA") from exc
         except RateLimitError as exc:
-            raise RuntimeError("Limite de requisições da OpenAI atingido") from exc
+            raise RuntimeError("Limite de requisições do provedor de IA atingido") from exc
         except APITimeoutError as exc:
-            raise RuntimeError("Timeout na geração de relatório via OpenAI") from exc
+            raise RuntimeError("Timeout na geração de relatório via IA") from exc
         except APIConnectionError as exc:
-            raise RuntimeError("Erro de rede ao conectar com a OpenAI") from exc
+            raise RuntimeError("Erro de rede ao conectar com o provedor de IA") from exc
         except APIError as exc:
             status = getattr(exc, 'status_code', 'desconhecido')
-            raise RuntimeError(f"Erro interno da API OpenAI ({status})") from exc
+            raise RuntimeError(f"Erro interno da API de IA ({status})") from exc
 
-        markdown = (resp.choices[0].message.content or '').strip()
+        markdown = (markdown or '').strip()
         if not markdown:
-            raise RuntimeError("OpenAI retornou resposta vazia para o relatório")
+            raise RuntimeError("Provedor de IA retornou resposta vazia para o relatório")
         markdown = self._strip_code_fences(markdown)
 
         recommendations = self._extract_recommendations(markdown)

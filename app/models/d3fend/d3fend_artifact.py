@@ -13,7 +13,7 @@ class D3fendArtifact(db.Model):
     Representa componentes de segurança como firewalls, IDS, EDR, etc.
     """
     __tablename__ = 'd3fend_artifacts'
-    __bind_key__ = 'core'
+    __bind_key__ = 'public'
     
     id = db.Column(db.String(50), primary_key=True)
     name = db.Column(db.String(200), nullable=False)

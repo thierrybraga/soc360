@@ -18,6 +18,7 @@ class RiskReportService:
         """
         Inicializa o servico de relatorios de risco.
         """
+        self.service = None
         self.client = None
         self.model = None
         self.max_tokens = 800
@@ -33,13 +34,13 @@ class RiskReportService:
 
         try:
             from app.services.core.ai_service import get_ai_service
-            service = get_ai_service()
-            self.client = getattr(service, 'client', None)
-            self.model = getattr(service, 'model', 'unknown')
-            self.max_tokens = int(getattr(service, 'max_tokens', 800))
-            self.temperature = float(getattr(service, 'temperature', 0.5))
+            self.service = get_ai_service()
+            self.client = getattr(self.service, 'client', None)
+            self.model = getattr(self.service, 'model', 'unknown')
+            self.max_tokens = int(getattr(self.service, 'max_tokens', 800))
+            self.temperature = float(getattr(self.service, 'temperature', 0.5))
             if self.client:
-                logger.info(f"RiskReportService: provider {service.__class__.__name__} / modelo {self.model}")
+                logger.info(f"RiskReportService: provider {self.service.__class__.__name__} / modelo {self.model}")
             else:
                 logger.warning("RiskReportService: cliente de IA indisponivel - modo demo ativo")
         except Exception as e:
@@ -134,22 +135,31 @@ Classifique o risco considerando que a organizacao **utiliza a tecnologia afetad
                 else:
                     try:
                         prompt = self.build_markdown_prompt(description)
+                        messages = [
+                            {"role": "system", "content": "Voce e um analista de risco especializado em vulnerabilidades."},
+                            {"role": "user", "content": prompt}
+                        ]
 
-                        response = self.client.chat.completions.create(
-                            model=self.model,
-                            messages=[
-                                {"role": "system", "content": "Voce e um analista de risco especializado em vulnerabilidades."},
-                                {"role": "user", "content": prompt}
-                            ],
-                            max_tokens=self.max_tokens,
-                            temperature=self.temperature
-                        )
+                        if self.service and hasattr(self.service, 'generate_completion'):
+                            risks = self.service.generate_completion(
+                                messages,
+                                max_tokens=self.max_tokens,
+                                temperature=self.temperature,
+                                fallback_message=prompt,
+                            )
+                        else:
+                            response = self.client.chat.completions.create(
+                                model=self.model,
+                                messages=messages,
+                                max_tokens=self.max_tokens,
+                                temperature=self.temperature
+                            )
+                            risks = response.choices[0].message.content.strip()
 
-                        risks = response.choices[0].message.content.strip()
                         risks = self.sanitize_markdown_output(risks)
 
                     except Exception as e:
-                        logger.error(f"Erro ao consultar OpenAI: {e}")
+                        logger.error(f"Erro ao consultar provedor de IA: {e}")
                         risks = self._generate_demo_risk_analysis(cve_id, description, base_severity, cvss_score)
 
                 vuln.risks = risks

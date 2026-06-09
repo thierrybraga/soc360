@@ -13,7 +13,7 @@ class CveD3fendCorrelation(db.Model):
     Permite recomendar contramedidas defensivas para vulnerabilidades.
     """
     __tablename__ = 'cve_d3fend_correlations'
-    __bind_key__ = 'core'
+    __bind_key__ = 'public'
     
     id = db.Column(db.Integer, primary_key=True)
     

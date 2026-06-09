@@ -14,7 +14,6 @@ class ApiCallLog(CoreModel):
     Log de chamadas de API para auditoria e análise.
     """
     __tablename__ = 'api_call_logs'
-    __bind_key__ = 'core'
     
     # Request info
     method = Column(String(10), nullable=False)  # GET, POST, etc

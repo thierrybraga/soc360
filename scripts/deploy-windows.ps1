@@ -3,6 +3,8 @@
 # Usage: .\deploy-windows.ps1 [Command] [-Debug]
 #
 # CHANGELOG:
+#   v3.2.0 - PostgreSQL: geração de postgres_password.txt; checagem de portas
+#            ajustada (80/443/5432); status mostra banco soc360
 #   v3.1.0 - Segurança: RNGCryptoServiceProvider para secrets
 #   v3.1.0 - Robustez: Backup automático, retry em comandos
 #   v3.1.0 - Usabilidade: Timestamps, verificação de versão compose
@@ -17,7 +19,7 @@ param(
 # ============================================
 $ProjectRoot = Split-Path -Parent $PSScriptRoot
 $ScriptDir = $PSScriptRoot
-$ScriptVersion = "3.1.0"
+$ScriptVersion = "3.2.0"
 
 # Colors
 $ESC = "$([char]0x001b)"
@@ -375,7 +377,10 @@ function Test-DiskSpace {
 
 function Test-Ports {
     Write-Info "Checking required ports..."
-    $ports = @(80, 443, 8080, 11434, 5000)
+    # Apenas portas publicadas no host pela stack core:
+    #   80/443 = nginx ; 5432 = postgres (loopback por padrão).
+    # 5000 (app) é interno; 8080 (airflow) e 11434 (ollama) são overlays opcionais.
+    $ports = @(80, 443, 5432)
     $portInUse = $false
     
     foreach ($port in $ports) {
@@ -459,6 +464,19 @@ function Initialize-Secrets {
         Write-Success "Generated secure redis_password.txt"
     } else {
         Write-Success "redis_password.txt already exists"
+    }
+
+    # Generate postgres_password.txt if not exists (usado pelo serviço postgres
+    # e pelo app via /run/secrets/postgres_password). Hex evita problemas de
+    # caracteres especiais na DATABASE_URL montada pelo entrypoint.
+    $postgresPasswordFile = Join-Path $secretsDir "postgres_password.txt"
+    if (-not (Test-Path $postgresPasswordFile)) {
+        Write-Info "Generating secure postgres_password.txt..."
+        $postgresPassword = New-SecureRandomString -Length 48 -AsHex
+        $postgresPassword | Set-Content -Path $postgresPasswordFile -NoNewline
+        Write-Success "Generated secure postgres_password.txt"
+    } else {
+        Write-Success "postgres_password.txt already exists"
     }
     
     # Aplicar permissões seguras
@@ -659,8 +677,9 @@ function Show-Status {
     Write-Host ""
     Write-Host "${BOLD}Services:${NC}"
     Write-Host "  App:        http://localhost"
-    Write-Host "  Airflow:    http://localhost:8080"
-    Write-Host "  Ollama:     http://localhost:11434"
+    Write-Host "  PostgreSQL: localhost:5432 (interno; banco 'soc360')"
+    Write-Host "  Airflow:    http://localhost:8080  (overlay docker-compose.airflow.yml)"
+    Write-Host "  Ollama:     http://localhost:11434 (overlay docker-compose.ollama.yml)"
     Write-Host ""
     Write-Host "${BOLD}Commands:${NC}"
     Write-Host "  Start:      .\deploy-windows.ps1 start"

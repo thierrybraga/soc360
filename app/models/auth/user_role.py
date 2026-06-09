@@ -16,7 +16,6 @@ class UserRole(db.Model):
     - Quem atribuiu a role
     """
     __tablename__ = 'user_roles'
-    __bind_key__ = 'core'
     
     id = Column(Integer, primary_key=True, autoincrement=True)
     user_id = Column(

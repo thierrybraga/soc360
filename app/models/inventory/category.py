@@ -16,7 +16,6 @@ class AssetCategory(CoreModel):
     'Equipamentos de Borda', 'Estações de Trabalho Cliente A', etc.
     """
     __tablename__ = 'asset_categories'
-    __bind_key__ = 'core'
     
     name = Column(String(100), nullable=False, index=True)
     description = Column(Text(), nullable=True)

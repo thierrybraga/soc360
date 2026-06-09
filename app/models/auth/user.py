@@ -20,7 +20,6 @@ class User(CoreModel, UserMixin):
     Implementa UserMixin do Flask-Login para gerenciamento de sessão.
     """
     __tablename__ = 'users'
-    __bind_key__ = 'core'
     
     # Autenticação
     username = Column(String(80), unique=True, nullable=False, index=True)

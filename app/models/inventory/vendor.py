@@ -16,7 +16,6 @@ class Vendor(CoreModel):
     são monitorados para vulnerabilidades.
     """
     __tablename__ = 'vendors'
-    __bind_key__ = 'core'
     
     # Identificação
     name = Column(String(255), nullable=False, unique=True, index=True)
@@ -124,7 +123,6 @@ class Product(CoreModel):
     Representa produtos de software/hardware que podem ter vulnerabilidades.
     """
     __tablename__ = 'products'
-    __bind_key__ = 'core'
     
     # Identificação
     name = Column(String(255), nullable=False, index=True)

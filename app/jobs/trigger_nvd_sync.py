@@ -3,11 +3,14 @@ if '/app' not in sys.path:
     sys.path.append('/app')
 
 from app import create_app
-from app.tasks.nvd import sync_nvd_task
+from app.jobs import trigger_nvd_sync
 
 app = create_app()
 
 with app.app_context():
-    print("Triggering NVD sync task (incremental)...")
-    result = sync_nvd_task.delay(mode='incremental')
-    print(f"Task triggered. Task ID: {result.id}")
+    print("Triggering NVD sync (incremental)...")
+    started = trigger_nvd_sync(mode='incremental')
+    if started:
+        print("NVD sync triggered.")
+    else:
+        print("NVD sync was not triggered because another sync is running or dispatch failed.")

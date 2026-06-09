@@ -354,8 +354,8 @@ def get_asset(asset_id):
         for av in vulns
     ]
     
-    # Risk score
-    result['risk_score'] = asset.calculate_risk_score()
+    # Risk score consolidado a partir das vulnerabilidades abertas do ativo.
+    result['risk_score'] = asset.risk_score or 0
     
     return jsonify(result)
 
@@ -517,18 +517,24 @@ def _get_user_assets_summary():
 @login_required
 def sync_status():
     """Status atual da sincronização NVD."""
+    from app.services.nvd import NVDSyncService
+
+    progress = NVDSyncService().get_progress()
+    current = int(progress.get('processed_cves') or progress.get('processed') or 0)
+    total = int(progress.get('total_cves') or progress.get('total') or 0)
+
     status = {
-        'status': SyncMetadata.get_value('nvd_sync_progress_status', 'idle'),
-        'current': int(SyncMetadata.get_value('nvd_sync_progress_current', '0')),
-        'total': int(SyncMetadata.get_value('nvd_sync_progress_total', '0')),
-        'last_sync': SyncMetadata.get_value('nvd_last_sync_date'),
-        'first_sync_completed': SyncMetadata.get_value('nvd_first_sync_completed', 'false') == 'true',
-        'error': SyncMetadata.get_value('nvd_sync_error')
+        **progress,
+        'current': current,
+        'total': total,
+        'last_sync': progress.get('last_sync') or SyncMetadata.get_value('nvd_last_sync_date'),
+        'first_sync_completed': bool(progress.get('first_sync_completed')),
+        'error': progress.get('error')
     }
     
     # Calcular porcentagem
-    if status['total'] > 0:
-        status['percentage'] = round((status['current'] / status['total']) * 100, 1)
+    if total > 0:
+        status['percentage'] = round((current / total) * 100, 1)
     else:
         status['percentage'] = 0
     
@@ -553,7 +559,12 @@ def trigger_sync():
     
     # Disparar sync
     from app.jobs import trigger_nvd_sync
-    trigger_nvd_sync(full_sync=full_sync)
+    started = trigger_nvd_sync(full_sync=full_sync)
+    if not started:
+        return jsonify({
+            'error': 'Conflict',
+            'message': 'Sync already in progress'
+        }), 409
     
     return jsonify({
         'message': 'Sync triggered',
@@ -569,8 +580,16 @@ def sync_progress():
     Usado pela página de loading.
     """
     status = SyncMetadata.get_value('nvd_sync_progress_status', 'idle')
-    current = int(SyncMetadata.get_value('nvd_sync_progress_current', '0'))
-    total = int(SyncMetadata.get_value('nvd_sync_progress_total', '0'))
+    current = int(
+        SyncMetadata.get_value('nvd_sync_progress_processed_cves')
+        or SyncMetadata.get_value('nvd_sync_progress_processed')
+        or 0
+    )
+    total = int(
+        SyncMetadata.get_value('nvd_sync_progress_total_cves')
+        or SyncMetadata.get_value('nvd_sync_progress_total')
+        or 0
+    )
     
     percentage = 0
     if total > 0:
@@ -674,6 +693,7 @@ def create_report():
     db.session.commit()
     
     # Disparar geração em background
+    report.start_generation()
     from app.jobs import trigger_report_generation
     trigger_report_generation(report.id)
     

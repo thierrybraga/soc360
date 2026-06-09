@@ -13,7 +13,6 @@ from app.extensions.db_types import JSONB
 class UmbrellaOrganization(CoreModel):
     """Umbrella organization (tenant)."""
     __tablename__ = 'umbrella_organizations'
-    __bind_key__ = 'core'
 
     organization_id = Column(Integer, unique=True, nullable=False, index=True)
     organization_name = Column(String(255), nullable=False)
@@ -44,7 +43,6 @@ class UmbrellaOrganization(CoreModel):
 class UmbrellaNetwork(CoreModel):
     """Network deployment in Umbrella."""
     __tablename__ = 'umbrella_networks'
-    __bind_key__ = 'core'
 
     organization_id = Column(Integer, ForeignKey('umbrella_organizations.organization_id'), nullable=False, index=True)
     network_id = Column(Integer, nullable=True)
@@ -71,7 +69,6 @@ class UmbrellaNetwork(CoreModel):
 class UmbrellaRoamingComputer(CoreModel):
     """Roaming computer (agent) in Umbrella."""
     __tablename__ = 'umbrella_roaming_computers'
-    __bind_key__ = 'core'
 
     organization_id = Column(Integer, ForeignKey('umbrella_organizations.organization_id'), nullable=False, index=True)
     device_id = Column(String(128))
@@ -96,7 +93,6 @@ class UmbrellaRoamingComputer(CoreModel):
 class UmbrellaVirtualAppliance(CoreModel):
     """Virtual Appliance in Umbrella."""
     __tablename__ = 'umbrella_virtual_appliances'
-    __bind_key__ = 'core'
 
     organization_id = Column(Integer, ForeignKey('umbrella_organizations.organization_id'), nullable=False, index=True)
     va_id = Column(String(128))
@@ -119,7 +115,6 @@ class UmbrellaVirtualAppliance(CoreModel):
 class UmbrellaReportData(CoreModel):
     """Cached report data per organization and period."""
     __tablename__ = 'umbrella_report_data'
-    __bind_key__ = 'core'
 
     organization_id = Column(Integer, ForeignKey('umbrella_organizations.organization_id'), nullable=False, index=True)
     period_start = Column(DateTime, nullable=False)
@@ -147,7 +142,6 @@ class UmbrellaReportData(CoreModel):
 class UmbrellaGeneratedReport(CoreModel):
     """Generated report file (DOCX/PDF)."""
     __tablename__ = 'umbrella_generated_reports'
-    __bind_key__ = 'core'
 
     organization_id = Column(Integer, ForeignKey('umbrella_organizations.organization_id'), nullable=False, index=True)
     organization_name = Column(String(255), nullable=False)

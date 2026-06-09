@@ -13,7 +13,7 @@ class D3fendOffensiveMapping(db.Model):
     Relaciona contramedidas defensivas com técnicas ofensivas.
     """
     __tablename__ = 'd3fend_offensive_mappings'
-    __bind_key__ = 'core'
+    __bind_key__ = 'public'
     
     id = db.Column(db.Integer, primary_key=True)
     

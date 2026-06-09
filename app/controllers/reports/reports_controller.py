@@ -125,11 +125,8 @@ def generate_report():
     
     # Iniciar geração em background
     report.start_generation()
-    db.session.commit()
-    
-    # TODO: Disparar task de geração em celery/thread
-    # Por hora, geramos inline
-    _generate_report_data(report)
+    from app.jobs import trigger_report_generation
+    trigger_report_generation(report.id)
     
     logger.info(f'Report generation started: {report.title} by {current_user.username}')
     
@@ -659,12 +656,20 @@ def _generate_report_data(report: Report) -> None:
                 recommendations=ai_result['recommendations'],
                 model_used=ai_result.get('model'),
             )
+            data['ai_status'] = 'completed'
+            data['ai_model'] = ai_result.get('model')
+            report.data = data
+            db.session.commit()
             logger.info(
                 'AI content saved for report %s (%s) — model=%s',
                 report.id, report.report_type, ai_result.get('model')
             )
         except Exception as ai_err:
             # AI is best-effort — a failure shouldn't fail the whole report.
+            data['ai_status'] = 'skipped'
+            data['ai_error'] = str(ai_err)[:500]
+            report.data = data
+            db.session.commit()
             logger.warning(
                 'AI generation skipped for report %s (%s): %s',
                 report.id, report.report_type, ai_err

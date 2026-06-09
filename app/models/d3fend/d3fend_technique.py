@@ -16,7 +16,7 @@ class D3fendTechnique(db.Model):
     - Implementa Artefatos (d3fend_artifacts)
     """
     __tablename__ = 'd3fend_techniques'
-    __bind_key__ = 'core'
+    __bind_key__ = 'public'
     
     id = db.Column(db.String(50), primary_key=True)  # e.g., "D3-DA"
     name = db.Column(db.String(200), nullable=False)

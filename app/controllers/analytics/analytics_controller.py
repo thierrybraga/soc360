@@ -17,6 +17,7 @@ from app.models.nvd import Vulnerability
 from app.models.inventory import Asset, AssetVulnerability
 from app.models.monitoring import MonitoringRule, Report
 from app.models.system import VulnerabilityStatus
+from app.services.risk import RiskScoringService
 
 
 logger = logging.getLogger(__name__)
@@ -402,21 +403,12 @@ def asset_risk_matrix():
         count = row[5]
         assets_risk[asset_id]['vulnerabilities'][severity] += count
             
-    # Calcular Risk Score
-    # Base: Criticality do Asset (Low=1, Medium=2, High=3, Critical=4)
-    # Score = AssetFactor * (Critical*10 + High*5 + Medium*2 + Low*1)
-    crit_map = {'LOW': 1.0, 'MEDIUM': 1.5, 'HIGH': 2.0, 'CRITICAL': 3.0}
-    
     final_list = []
     for asset in assets_risk.values():
-        asset_factor = crit_map.get(asset['criticality'], 1.0)
-        vuln_score = (
-            asset['vulnerabilities']['CRITICAL'] * 10 +
-            asset['vulnerabilities']['HIGH'] * 5 +
-            asset['vulnerabilities']['MEDIUM'] * 2 +
-            asset['vulnerabilities']['LOW'] * 1
+        asset['risk_score'] = RiskScoringService.calculate_asset_matrix_score(
+            asset['criticality'],
+            asset['vulnerabilities'],
         )
-        asset['risk_score'] = int(vuln_score * asset_factor)
         final_list.append(asset)
         
     # Ordenar e pegar top 5

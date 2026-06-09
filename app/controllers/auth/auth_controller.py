@@ -53,22 +53,34 @@ def _provision_tacacs_user(username: str, default_email_domain: str) -> 'User':
     import secrets
     safe_user = (username or '').strip()
     domain = (default_email_domain or 'local').strip().lower() or 'local'
-    email = f'{safe_user.lower()}@{domain}'
-    # Ensure uniqueness if the email collides
+
+    # Resolve a unique username — the TACACS username might already be taken
+    # by a local account with different case.
+    final_username = safe_user
     suffix = 0
-    while User.query.filter(func.lower(User.email) == email).first():
+    while User.query.filter(func.lower(User.username) == final_username.lower()).first():
+        suffix += 1
+        final_username = f'{safe_user}_tacacs{suffix}'
+
+    # Resolve a unique email with the same numeric suffix logic.
+    email = f'{safe_user.lower()}@{domain}'
+    suffix = 0
+    while User.query.filter(func.lower(User.email) == email.lower()).first():
         suffix += 1
         email = f'{safe_user.lower()}+tacacs{suffix}@{domain}'
 
     user = User(
-        username=safe_user,
+        username=final_username,
         email=email,
         password=secrets.token_urlsafe(64),
         is_admin=False,
     )
     db.session.add(user)
     db.session.commit()
-    current_app.logger.info('Provisioned local mirror for TACACS+ user %s', safe_user)
+    current_app.logger.info(
+        'Provisioned local mirror for TACACS+ user %s (stored as %s)',
+        safe_user, final_username,
+    )
     return user
 
 

@@ -23,8 +23,8 @@ from app.models.umbrella import (
     UmbrellaReportData,
     UmbrellaGeneratedReport,
 )
-from app.services.umbrella import UmbrellaAPIClient, generate_full_report
-from app.utils.security import role_required
+from app.services.umbrella import UmbrellaAPIClient, generate_full_report, UmbrellaConfigService
+from app.utils.security import role_required, admin_required
 
 logger = logging.getLogger(__name__)
 
@@ -37,12 +37,11 @@ umbrella_bp = Blueprint(
 
 def _get_client():
     """Factory para o cliente Umbrella baseado nas configurações do app."""
-    use_mock = current_app.config.get('UMBRELLA_USE_MOCK', True)
-    api_key = current_app.config.get('UMBRELLA_API_KEY')
-    api_secret = current_app.config.get('UMBRELLA_API_SECRET')
+    api_key, api_secret = UmbrellaConfigService.get_runtime_credentials()
     if api_key and api_secret:
         client = UmbrellaAPIClient(api_key=api_key, api_secret=api_secret, use_mock=False)
     else:
+        use_mock = current_app.config.get('UMBRELLA_USE_MOCK', True)
         client = UmbrellaAPIClient(use_mock=use_mock)
     client.authenticate()
     return client
@@ -426,9 +425,73 @@ def api_reports():
 @umbrella_bp.route('/download/<filename>')
 @login_required
 def download_file(filename):
-    reports_dir = current_app.config.get('UMBRELLA_REPORTS_DIR', os.path.join(current_app.config.get('REPORTS_DIR', '/app/reports'), 'umbrella'))
-    file_path = os.path.join(reports_dir, filename)
-    if not os.path.exists(file_path):
+    # Reject any path separators or traversal sequences before building the path
+    if os.sep in filename or (os.altsep and os.altsep in filename) or '..' in filename:
+        return jsonify({'error': 'Invalid filename'}), 400
+    reports_dir = current_app.config.get(
+        'UMBRELLA_REPORTS_DIR',
+        os.path.join(current_app.config.get('REPORTS_DIR', '/app/reports'), 'umbrella'),
+    )
+    file_path = os.path.realpath(os.path.join(reports_dir, filename))
+    safe_base = os.path.realpath(reports_dir)
+    if not file_path.startswith(safe_base + os.sep) and file_path != safe_base:
+        return jsonify({'error': 'Invalid filename'}), 400
+    if not os.path.isfile(file_path):
         return jsonify({'error': 'File not found'}), 404
-    mimetype = 'application/pdf' if filename.endswith('.pdf') else 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'
+    mimetype = (
+        'application/pdf'
+        if filename.endswith('.pdf')
+        else 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'
+    )
     return send_file(file_path, as_attachment=True, mimetype=mimetype)
+
+
+# =============================================================================
+# API — CONFIGURATION (admin only)
+# =============================================================================
+
+@umbrella_bp.route('/api/config/status')
+@login_required
+@admin_required
+def api_config_status():
+    """Return masked Umbrella credential status."""
+    return jsonify(UmbrellaConfigService.status())
+
+
+@umbrella_bp.route('/api/config/credentials', methods=['POST'])
+@login_required
+@admin_required
+def api_config_save():
+    """Save/update encrypted Umbrella API credentials."""
+    payload = request.get_json(silent=True) or {}
+    api_key    = (payload.get('api_key') or '').strip()
+    api_secret = (payload.get('api_secret') or '').strip()
+    try:
+        status = UmbrellaConfigService.save_credentials(api_key, api_secret)
+        return jsonify({'message': 'Credenciais Cisco Umbrella salvas com sucesso.', 'status': status})
+    except ValueError as exc:
+        return jsonify({'error': str(exc)}), 400
+    except Exception:
+        logger.exception('Umbrella credentials save failed')
+        return jsonify({'error': 'Erro ao salvar credenciais Umbrella.'}), 500
+
+
+@umbrella_bp.route('/api/config/credentials', methods=['DELETE'])
+@login_required
+@admin_required
+def api_config_remove():
+    """Remove encrypted Umbrella credentials stored in DB."""
+    status = UmbrellaConfigService.remove_credentials()
+    return jsonify({'message': 'Credenciais Umbrella removidas do armazenamento interno.', 'status': status})
+
+
+@umbrella_bp.route('/api/config/test', methods=['POST'])
+@login_required
+@admin_required
+def api_config_test():
+    """Test Umbrella API connectivity with configured or supplied credentials."""
+    payload = request.get_json(silent=True) or {}
+    api_key    = (payload.get('api_key') or '').strip() or None
+    api_secret = (payload.get('api_secret') or '').strip() or None
+    result = UmbrellaConfigService.test_connection(api_key, api_secret)
+    return jsonify(result), (200 if result.get('ok') else 400)

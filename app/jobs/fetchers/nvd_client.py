@@ -19,6 +19,10 @@ from .nvd_rate_limiter import NVDRateLimiter
 logger = logging.getLogger(__name__)
 
 
+class NVDDownloadError(RuntimeError):
+    """Raised when the NVD response stream is incomplete."""
+
+
 class NVDFetcher(BaseFetcher):
     """
     HTTP client for NVD API 2.0.
@@ -40,6 +44,13 @@ class NVDFetcher(BaseFetcher):
     # Limites da API
     MAX_RESULTS_PER_PAGE = 2000
     MAX_DATE_RANGE_DAYS = 120
+
+    @staticmethod
+    def _format_nvd_datetime(value: datetime) -> str:
+        """Format datetimes for NVD without dropping millisecond precision."""
+        if value.tzinfo is not None:
+            value = value.astimezone(timezone.utc).replace(tzinfo=None)
+        return value.isoformat(timespec='milliseconds')
     
     def __init__(self, api_key: Optional[str] = None):
         """
@@ -102,13 +113,13 @@ class NVDFetcher(BaseFetcher):
         
         # Filtros de data
         if pub_start_date:
-            params['pubStartDate'] = pub_start_date.strftime('%Y-%m-%dT%H:%M:%S.000')
+            params['pubStartDate'] = self._format_nvd_datetime(pub_start_date)
         if pub_end_date:
-            params['pubEndDate'] = pub_end_date.strftime('%Y-%m-%dT%H:%M:%S.000')
+            params['pubEndDate'] = self._format_nvd_datetime(pub_end_date)
         if last_mod_start_date:
-            params['lastModStartDate'] = last_mod_start_date.strftime('%Y-%m-%dT%H:%M:%S.000')
+            params['lastModStartDate'] = self._format_nvd_datetime(last_mod_start_date)
         if last_mod_end_date:
-            params['lastModEndDate'] = last_mod_end_date.strftime('%Y-%m-%dT%H:%M:%S.000')
+            params['lastModEndDate'] = self._format_nvd_datetime(last_mod_end_date)
         
         # Outros filtros
         if keyword_search:
@@ -160,7 +171,9 @@ class NVDFetcher(BaseFetcher):
         pub_end_date: Optional[datetime] = None,
         last_mod_start_date: Optional[datetime] = None,
         last_mod_end_date: Optional[datetime] = None,
-        progress_callback: Optional[Callable[[int, int], None]] = None
+        keyword_search: Optional[str] = None,
+        progress_callback: Optional[Callable[[int, int], None]] = None,
+        cancel_callback: Optional[Callable[[], bool]] = None
     ) -> List[Dict]:
         """
         Buscar todas as páginas para um período.
@@ -170,7 +183,9 @@ class NVDFetcher(BaseFetcher):
             pub_end_date: Data final de publicação
             last_mod_start_date: Data inicial de modificação
             last_mod_end_date: Data final de modificação
+            keyword_search: Busca por palavra-chave
             progress_callback: Callback(current, total) para progresso
+            cancel_callback: Callback que retorna True para interromper paginação
             
         Returns:
             Lista de todos os CVEs
@@ -180,18 +195,28 @@ class NVDFetcher(BaseFetcher):
         total_results = None
         
         while True:
+            if cancel_callback and cancel_callback():
+                logger.info('NVD fetch cancelled before page startIndex=%s', start_index)
+                break
+
             response = self.fetch_page(
                 start_index=start_index,
                 pub_start_date=pub_start_date,
                 pub_end_date=pub_end_date,
                 last_mod_start_date=last_mod_start_date,
-                last_mod_end_date=last_mod_end_date
+                last_mod_end_date=last_mod_end_date,
+                keyword_search=keyword_search,
             )
             
             if response is None:
                 if start_index == 0:
-                    raise Exception("Failed to connect to NVD API. Check API Key and connectivity.")
-                logger.error('Failed to fetch page, aborting')
+                    raise NVDDownloadError("Failed to connect to NVD API. Check API Key and connectivity.")
+                raise NVDDownloadError(
+                    f'Failed to fetch NVD page at startIndex={start_index}; download is incomplete.'
+                )
+
+            if cancel_callback and cancel_callback():
+                logger.info('NVD fetch cancelled after page startIndex=%s', start_index)
                 break
             
             if total_results is None:
@@ -199,17 +224,35 @@ class NVDFetcher(BaseFetcher):
                 logger.info(f'Total CVEs to fetch: {total_results}')
             
             all_vulnerabilities.extend(response.vulnerabilities)
-            
+
             # Callback de progresso
             if progress_callback:
                 progress_callback(len(all_vulnerabilities), total_results)
-            
-            # Verificar se terminou
-            if start_index + response.results_per_page >= total_results:
+
+            page_count = len(response.vulnerabilities)
+
+            # Guard anti-loop-infinito: se a página não trouxe nada mas o total
+            # diz que há mais, o download está incompleto e não pode avançar
+            # watermark/checkpoint como sucesso.
+            if page_count <= 0:
+                if total_results and start_index < total_results:
+                    raise NVDDownloadError(
+                        f'NVD returned an empty page at startIndex={start_index} '
+                        f'with totalResults={total_results}; download is incomplete.'
+                    )
+                logger.warning(
+                    'NVD page returned 0 results at startIndex=%s (total=%s). '
+                    'Stopping pagination to avoid infinite loop.',
+                    start_index, total_results
+                )
                 break
-            
-            start_index += response.results_per_page
-        
+
+            # Verificar se terminou
+            if start_index + page_count >= total_results:
+                break
+
+            start_index += page_count
+
         return all_vulnerabilities
     
     def fetch_cve(self, cve_id: str) -> Optional[Dict]:
@@ -253,6 +296,8 @@ class NVDFetcher(BaseFetcher):
                 end_date
             )
             windows.append((current, window_end))
-            current = window_end + timedelta(seconds=1)
+            if window_end >= end_date:
+                break
+            current = window_end
         
         return windows

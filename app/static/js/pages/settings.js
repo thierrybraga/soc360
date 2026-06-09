@@ -462,6 +462,203 @@ function setupOpenAIConfig() {
 }
 
 // ────────────────────────────────────────────────────────────────────────────
+// TACACS+ FORM — loading states and double-submit guard
+// ────────────────────────────────────────────────────────────────────────────
+
+function setupTacacsForm() {
+    const form = document.getElementById('tacacsForm');
+    if (!form) return;
+
+    const saveBtn = form.querySelector('button[name="tacacs_config_submit"]');
+    const testBtn = form.querySelector('button[name="tacacs_test_submit"]');
+
+    function setSubmitting(activeBtn) {
+        [saveBtn, testBtn].forEach(btn => {
+            if (!btn) return;
+            btn.disabled = true;
+        });
+        if (activeBtn) {
+            const icon = activeBtn.querySelector('i');
+            if (icon) {
+                activeBtn.dataset.origIcon = icon.className;
+                icon.className = 'fas fa-spinner fa-spin';
+            }
+        }
+    }
+
+    [saveBtn, testBtn].forEach(btn => {
+        if (!btn) return;
+        btn.addEventListener('click', () => {
+            // Small delay to allow the browser to set btn as submitter before disabling
+            setTimeout(() => setSubmitting(btn), 50);
+        });
+    });
+}
+
+// ────────────────────────────────────────────────────────────────────────────
+// CISCO UMBRELLA ADMIN CONFIG
+// ────────────────────────────────────────────────────────────────────────────
+
+function umbrellaCsrfToken() {
+    return document.querySelector('meta[name="csrf-token"]')?.content || '';
+}
+
+async function umbrellaRequest(url, options = {}) {
+    const response = await fetch(url, {
+        credentials: 'same-origin',
+        ...options,
+        headers: {
+            'Accept': 'application/json',
+            'Content-Type': 'application/json',
+            'X-CSRFToken': umbrellaCsrfToken(),
+            ...(options.headers || {})
+        }
+    });
+    const body = await response.json().catch(() => ({}));
+    if (!response.ok) {
+        throw new Error(body.error || body.message || 'Falha ao processar configuração Umbrella.');
+    }
+    return body;
+}
+
+function setUmbrellaButtonsBusy(busy) {
+    ['umbrella-save-btn', 'umbrella-test-btn', 'umbrella-remove-btn'].forEach(id => {
+        const btn = document.getElementById(id);
+        if (!btn) return;
+        if (id === 'umbrella-remove-btn' && !btn.dataset.disabledByStatus) {
+            btn.dataset.disabledByStatus = btn.disabled ? 'true' : 'false';
+        }
+        btn.disabled = busy || (id === 'umbrella-remove-btn' && btn.dataset.disabledByStatus === 'true');
+    });
+}
+
+function renderUmbrellaStatus(status) {
+    const configured = Boolean(status?.configured);
+    const source = status?.source || '';
+    const badge   = document.getElementById('umbrella-status-badge');
+    const alert   = document.getElementById('umbrella-status-alert');
+    const title   = document.getElementById('umbrella-status-title');
+    const text    = document.getElementById('umbrella-status-text');
+    const removeBtn = document.getElementById('umbrella-remove-btn');
+
+    if (badge) {
+        badge.classList.toggle('scard__status--ok', configured);
+        badge.innerHTML = `<i class="fas fa-circle"></i>${configured ? 'Credenciais configuradas' : 'Modo demo ativo'}`;
+    }
+    if (alert) {
+        alert.classList.toggle('alert-success', configured);
+        alert.classList.toggle('alert-warning', !configured);
+        const icon = alert.querySelector('i');
+        if (icon) {
+            icon.className = configured ? 'fas fa-circle-check' : 'fas fa-circle-exclamation';
+        }
+    }
+    if (title) {
+        title.textContent = configured ? 'Credenciais configuradas' : 'Modo demo ativo';
+    }
+    if (text) {
+        if (!configured) {
+            text.textContent = 'Cadastre as credenciais para conectar à API real da Cisco Umbrella.';
+        } else {
+            const sourceText = source === 'environment'
+                ? ' via variável de ambiente'
+                : ' via armazenamento seguro interno';
+            text.textContent = `Usando key ${status.masked_key || '****...'}${sourceText}.`;
+        }
+    }
+    if (removeBtn) {
+        const disabledByStatus = !configured || source === 'environment';
+        removeBtn.dataset.disabledByStatus = disabledByStatus ? 'true' : 'false';
+        removeBtn.disabled = disabledByStatus;
+    }
+}
+
+function showUmbrellaResult(message, type = 'success') {
+    const toast = window.OpenMonitor?.showToast;
+    if (typeof toast === 'function') {
+        toast(message, type);
+        return;
+    }
+    window.alert(message);
+}
+
+function setupUmbrellaConfig() {
+    const form = document.getElementById('umbrellaConfigForm');
+    if (!form) return;
+
+    const keyInput    = document.getElementById('umbrellaApiKeyInput');
+    const secretInput = document.getElementById('umbrellaApiSecretInput');
+    const testBtn     = document.getElementById('umbrella-test-btn');
+    const removeBtn   = document.getElementById('umbrella-remove-btn');
+
+    form.addEventListener('submit', async event => {
+        event.preventDefault();
+        const apiKey    = keyInput?.value.trim() || '';
+        const apiSecret = secretInput?.value.trim() || '';
+        if (!apiKey || !apiSecret) {
+            showUmbrellaResult('Informe a API Key e o API Secret para salvar.', 'warning');
+            (!apiKey ? keyInput : secretInput)?.focus();
+            return;
+        }
+
+        setUmbrellaButtonsBusy(true);
+        try {
+            const body = await umbrellaRequest('/integrations/umbrella/api/config/credentials', {
+                method: 'POST',
+                body: JSON.stringify({ api_key: apiKey, api_secret: apiSecret })
+            });
+            if (keyInput) keyInput.value = '';
+            if (secretInput) secretInput.value = '';
+            renderUmbrellaStatus(body.status);
+            showUmbrellaResult(body.message || 'Credenciais Umbrella salvas com sucesso.', 'success');
+        } catch (error) {
+            showUmbrellaResult(error.message, 'error');
+        } finally {
+            setUmbrellaButtonsBusy(false);
+        }
+    });
+
+    testBtn?.addEventListener('click', async () => {
+        const apiKey    = keyInput?.value.trim() || '';
+        const apiSecret = secretInput?.value.trim() || '';
+        setUmbrellaButtonsBusy(true);
+        try {
+            const payload = (apiKey && apiSecret) ? { api_key: apiKey, api_secret: apiSecret } : {};
+            const body = await umbrellaRequest('/integrations/umbrella/api/config/test', {
+                method: 'POST',
+                body: JSON.stringify(payload)
+            });
+            showUmbrellaResult(body.message || 'Conexão testada com sucesso.', body.ok ? 'success' : 'warning');
+        } catch (error) {
+            showUmbrellaResult(error.message, 'error');
+        } finally {
+            setUmbrellaButtonsBusy(false);
+        }
+    });
+
+    removeBtn?.addEventListener('click', async () => {
+        const ok = await confirmDangerous(
+            'As credenciais salvas no armazenamento interno serão removidas. Se houver credenciais em variáveis de ambiente, elas continuarão ativas.',
+            { title: 'Remover credenciais Umbrella', confirmText: 'Remover', cancelText: 'Cancelar' }
+        );
+        if (!ok) return;
+
+        setUmbrellaButtonsBusy(true);
+        try {
+            const body = await umbrellaRequest('/integrations/umbrella/api/config/credentials', { method: 'DELETE' });
+            if (keyInput) keyInput.value = '';
+            if (secretInput) secretInput.value = '';
+            renderUmbrellaStatus(body.status);
+            showUmbrellaResult(body.message || 'Credenciais Umbrella removidas.', 'success');
+        } catch (error) {
+            showUmbrellaResult(error.message, 'error');
+        } finally {
+            setUmbrellaButtonsBusy(false);
+        }
+    });
+}
+
+// ────────────────────────────────────────────────────────────────────────────
 // BUTTON FEEDBACK
 // ────────────────────────────────────────────────────────────────────────────
 
@@ -531,7 +728,9 @@ document.addEventListener('DOMContentLoaded', () => {
 
     setupFormValidation();
     setupDangerousActionHandlers();
+    setupTacacsForm();
     setupOpenAIConfig();
+    setupUmbrellaConfig();
     setupButtonFeedback();
     setupFlashAutoDismiss();
 });

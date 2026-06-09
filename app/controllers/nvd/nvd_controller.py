@@ -3,17 +3,17 @@ SOC360 NVD Controller
 Rotas para visualização e gerenciamento de vulnerabilidades.
 """
 import logging
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from statistics import mean
 
-from flask import Blueprint, render_template, request, jsonify
+from flask import Blueprint, current_app, render_template, request, jsonify
 from flask_login import login_required, current_user
 from sqlalchemy import func
 from sqlalchemy.orm import joinedload, selectinload
 
 from app.extensions import db
 from app.models.nvd import Vulnerability, CvssMetric, Weakness, Reference, Mitigation, Credit, AffectedProduct
-from app.services.nvd import NVDSyncService
+from app.services.nvd import NVDOperationAlreadyRunning, NVDSyncService, SyncMode
 from app.models.inventory.category import AssetCategory
 from app.utils.security import role_required
 def _is_sqlite():
@@ -41,6 +41,11 @@ def _parse_iso_datetime(value):
 def _serialize_dt(dt):
     """Convert datetime to ISO string, return None if None."""
     return dt.isoformat() if dt else None
+
+
+def _now_utc_naive():
+    """Return UTC now as naive datetime for existing DateTime columns."""
+    return datetime.now(timezone.utc).replace(tzinfo=None)
 
 
 def _build_mitigation_history(cve_id: str, limit: int = 100):
@@ -545,7 +550,7 @@ def mitigation_workflow(cve_id):
         'add_note': None
     }
 
-    now = datetime.utcnow()
+    now = _now_utc_naive()
     changed_status = None
     try:
         if asset_vuln:
@@ -701,7 +706,7 @@ def stats():
     ).group_by(Vulnerability.base_severity).all()
     
     # CVEs nas últimas 24h, 7 dias, 30 dias
-    now = datetime.utcnow()
+    now = _now_utc_naive()
     
     last_24h = Vulnerability.query.filter(
         Vulnerability.published_date >= now - timedelta(hours=24)
@@ -882,7 +887,7 @@ def sync_page():
 def associate_organizations(cve_id):
     """API: Associar organizações a uma CVE."""
     vuln = Vulnerability.query.filter_by(cve_id=cve_id).first_or_404()
-    data = request.get_json()
+    data = request.get_json() or {}
     
     if not data or 'organization_ids' not in data:
         return jsonify({'error': 'Missing organization_ids'}), 400
@@ -964,6 +969,7 @@ def mitre_attack_map():
 def start_sync():
     """API: Iniciar sincronização."""
     from app.services.nvd.nvd_sync_service import SyncMode
+    from app.jobs import trigger_nvd_sync
     
     data = request.get_json() or {}
     mode = data.get('mode', 'incremental')
@@ -973,9 +979,7 @@ def start_sync():
     except ValueError:
         return jsonify({'error': f'Invalid mode: {mode}'}), 400
     
-    service = NVDSyncService()
-
-    if service.start_sync(mode=sync_mode):
+    if trigger_nvd_sync(mode=sync_mode.value):
         logger.info(
             f'NVD sync started by {current_user.username}: mode={mode}'
         )
@@ -983,8 +987,8 @@ def start_sync():
             'message': f'Sync started in {mode} mode',
             'status': 'running'
         })
-    else:
-        return jsonify({'error': 'Sync already running'}), 409
+
+    return jsonify({'error': 'Sync already running'}), 409
 
 
 @nvd_bp.route('/api/sync/keyword', methods=['POST'])
@@ -997,38 +1001,43 @@ def sync_by_keyword():
     if not keyword or len(keyword) < 3:
         return jsonify({'error': 'keyword obrigatório (min 3 chars)'}), 400
 
-    from app.jobs.fetchers import NVDFetcher
-    from app.services.nvd.bulk_database_service import BulkDatabaseService
-
-    fetcher = NVDFetcher()
-    db_svc = BulkDatabaseService()
-    db_svc.reset_stats()
+    service = NVDSyncService()
 
     try:
-        all_vulns = []
-        start_index = 0
-        while True:
-            page = fetcher.fetch_page(
-                start_index=start_index,
-                results_per_page=2000,
-                keyword_search=keyword
+        with service.locked_operation(
+            message=f'Sincronizando CVEs da NVD por keyword: {keyword}'
+        ):
+            service.db_service.reset_stats()
+            all_vulns = service.fetcher.fetch_all_pages(
+                keyword_search=keyword,
+                progress_callback=service._fetch_progress_callback,
+                cancel_callback=service._is_cancel_requested,
             )
-            if not page:
-                break
-            all_vulns.extend(page.vulnerabilities)
-            if start_index + page.results_per_page >= page.total_results:
-                break
-            start_index += page.results_per_page
 
-        if all_vulns:
-            db_svc.process_vulnerabilities(all_vulns)
+            if service._is_cancel_requested():
+                return jsonify({
+                    'ok': False,
+                    'keyword': keyword,
+                    'fetched': len(all_vulns),
+                    'error': 'Sync cancelled'
+                }), 409
+
+            service._update_progress(total=len(all_vulns), total_cves=len(all_vulns))
+
+            if all_vulns:
+                service.db_service.process_vulnerabilities(
+                    all_vulns,
+                    progress_callback=service._db_progress_callback,
+                )
 
         return jsonify({
             'ok': True,
             'keyword': keyword,
             'fetched': len(all_vulns),
-            'stats': db_svc.stats
+            'stats': service.db_service.stats
         })
+    except NVDOperationAlreadyRunning as exc:
+        return jsonify({'error': str(exc)}), 409
     except Exception as e:
         logger.error(f'sync_by_keyword error: {e}')
         return jsonify({'error': str(e)}), 500
@@ -1090,7 +1099,7 @@ def timeline():
     days = request.args.get('days', 30, type=int)
     severity = request.args.get('severity')
     
-    start_date = datetime.utcnow() - timedelta(days=days)
+    start_date = _now_utc_naive() - timedelta(days=days)
     
     query = db.session.query(
         db.func.date(Vulnerability.published_date).label('date'),
@@ -1119,17 +1128,66 @@ def timeline():
 @role_required('ADMIN')
 def bulk_import():
     """API: Importar CVEs em massa (JSON)."""
+    import threading
+
+    from app.extensions.celery_extension import CELERY_AVAILABLE
     from app.tasks.nvd import bulk_import_task
     
-    data = request.get_json()
+    data = request.get_json() or {}
     file_path = data.get('file_path')
     
     if not file_path:
         return jsonify({'error': 'File path required'}), 400
-        
-    task = bulk_import_task.delay(file_path)
-    
+
+    testing = bool(current_app.config.get('TESTING', False))
+    eager = bool(current_app.config.get('CELERY_TASK_ALWAYS_EAGER', False))
+    can_dispatch = (
+        CELERY_AVAILABLE
+        and hasattr(bulk_import_task, 'delay')
+        and not testing
+        and not eager
+    )
+
+    if can_dispatch:
+        sync_service = NVDSyncService()
+        token = sync_service.reserve_sync(SyncMode.CUSTOM)
+        if not token:
+            return jsonify({'error': 'Sync already running'}), 409
+        try:
+            sync_service._update_progress(
+                message=f'Importação em massa NVD enfileirada: {file_path}'
+            )
+            task = bulk_import_task.delay(file_path, lock_token=token)
+            return jsonify({
+                'message': 'Bulk import started',
+                'task_id': task.id
+            }), 202
+        except Exception as exc:
+            logger.error('Failed to dispatch NVD bulk import task: %s', exc)
+            sync_service._update_progress(
+                status='failed',
+                error=str(exc),
+                message=f'Falha ao enfileirar importação NVD: {exc}',
+            )
+            sync_service._release_sync_lock()
+
+    app = current_app._get_current_object()
+
+    def run_import(app_instance, path):
+        with app_instance.app_context():
+            try:
+                bulk_import_task(path)
+            except Exception as exc:
+                logger.error('NVD bulk import fallback failed: %s', exc)
+
+    thread = threading.Thread(
+        target=run_import,
+        args=(app, file_path),
+        daemon=True,
+    )
+    thread.start()
+
     return jsonify({
         'message': 'Bulk import started',
-        'task_id': task.id
+        'task_id': None
     }), 202

@@ -270,7 +270,7 @@ class TacacsService:
             return False, f'TACACS error: {exc}'
 
         valid = bool(getattr(result, 'valid', False))
-        return valid, None if valid else None  # credential failure => (False, None)
+        return valid, None  # credential failure => (False, None); infra errors handled above
 
     @classmethod
     def test_connection(cls, probe_username: Optional[str] = None,

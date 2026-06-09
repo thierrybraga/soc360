@@ -23,7 +23,6 @@ TREATMENT_ACTIONS = (
 
 class WazuhTreatmentNote(CoreModel):
     __tablename__ = 'wazuh_treatment_notes'
-    __bind_key__ = 'core'
 
     alert_id = Column(
         Integer,

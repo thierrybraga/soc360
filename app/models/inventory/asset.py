@@ -19,7 +19,6 @@ class Asset(CoreModel):
     Inclui informações de BIA (Business Impact Analysis) para cálculo de risco.
     """
     __tablename__ = 'assets'
-    __bind_key__ = 'core'
     
     # Identificação
     name = Column(String(255), nullable=False, index=True)
@@ -128,72 +127,23 @@ class Asset(CoreModel):
         Calcula score BIA (0-100) baseado em RTO, RPO e custo.
         Quanto menor RTO/RPO e maior custo, maior o score.
         """
-        score = 0
-        
-        # RTO contribui até 40 pontos (quanto menor, mais crítico)
-        if self.rto_hours:
-            if self.rto_hours <= 1:
-                score += 40
-            elif self.rto_hours <= 4:
-                score += 30
-            elif self.rto_hours <= 24:
-                score += 20
-            else:
-                score += 10
-        
-        # RPO contribui até 30 pontos
-        if self.rpo_hours:
-            if self.rpo_hours <= 0.25:  # 15 min
-                score += 30
-            elif self.rpo_hours <= 1:
-                score += 25
-            elif self.rpo_hours <= 4:
-                score += 15
-            else:
-                score += 5
-        
-        # Custo operacional contribui até 30 pontos
-        if self.operational_cost_per_hour:
-            if self.operational_cost_per_hour >= 10000:
-                score += 30
-            elif self.operational_cost_per_hour >= 1000:
-                score += 20
-            elif self.operational_cost_per_hour >= 100:
-                score += 10
-        
-        return score
+        from app.services.risk import RiskScoringService
+
+        return RiskScoringService.calculate_bia_score(
+            rto_hours=self.rto_hours,
+            rpo_hours=self.rpo_hours,
+            operational_cost_per_hour=self.operational_cost_per_hour,
+        )
     
-    def calculate_risk_score(self, cvss_score):
+    def calculate_risk_score(self, cvss_score=None):
         """
         Calcula score de risco contextualizado.
         
         Risk Score = CVSS × BIA_multiplier × Context_multiplier
         """
-        if not cvss_score:
-            return 0
-        
-        bia = self.bia_score
-        # Multiplier: 1.0 (BIA=0) até 1.5 (BIA=100)
-        bia_multiplier = 1.0 + (bia / 200)
-        
-        # Context multiplier (baseado em criticidade, ambiente e exposição)
-        context_multiplier = 1.0
-        
-        # Criticidade (0.8 a 1.2)
-        criticality_map = {'LOW': 0.8, 'MEDIUM': 1.0, 'HIGH': 1.1, 'CRITICAL': 1.2}
-        context_multiplier *= criticality_map.get(self.criticality.upper(), 1.0)
-        
-        # Ambiente (0.9 a 1.1)
-        env_map = {'PRODUCTION': 1.1, 'STAGING': 1.0, 'DEV': 0.9, 'DMZ': 1.1}
-        context_multiplier *= env_map.get(self.environment.upper(), 1.0)
-        
-        # Exposição (1.0 a 1.2)
-        exp_map = {'INTERNAL': 1.0, 'CLOUD': 1.1, 'EXTERNAL': 1.2}
-        context_multiplier *= exp_map.get(self.exposure.upper(), 1.0)
-        
-        risk_score = cvss_score * bia_multiplier * context_multiplier
-        # Cap at 10.0
-        return min(round(risk_score, 1), 10.0)
+        from app.services.risk import RiskScoringService
+
+        return RiskScoringService.calculate_asset_risk(self, cvss_score)
     
     @property
     def vulnerability_count(self):
@@ -225,8 +175,14 @@ class Asset(CoreModel):
             and av.vulnerability and av.vulnerability.base_severity == 'CRITICAL'
         ])
     
-    def to_dict(self, include_vulnerabilities=False):
-        """Converte para dicionário."""
+    def to_dict(self, include_vulnerabilities=False, include_vuln_stats=True):
+        """Converte para dicionário.
+
+        ``include_vuln_stats=True`` (padrão) inclui risk_score e
+        critical_vulnerability_count, que disparam lazy loads no DB público
+        (um SELECT por AssetVulnerability). Use ``include_vuln_stats=False``
+        em endpoints de listagem para evitar N+1.
+        """
         data = {
             'id': self.id,
             'name': self.name,
@@ -259,19 +215,28 @@ class Asset(CoreModel):
             'rpo_hours': self.rpo_hours,
             'operational_cost_per_hour': self.operational_cost_per_hour,
             'bia_score': self.bia_score,
-            'risk_score': self.risk_score,
-            'installed_software': self.installed_software,
+            # vulnerability_count only needs local DB (iterates already-loaded rel)
             'vulnerability_count': self.vulnerability_count,
-            'critical_vulnerability_count': self.critical_vulnerability_count,
+            'installed_software': self.installed_software,
             'tags': self.tags,
             'last_scan_date': self.last_scan_date.isoformat() if self.last_scan_date else None,
             'created_at': self.created_at.isoformat() if self.created_at else None,
             'updated_at': self.updated_at.isoformat() if self.updated_at else None
         }
-        
+
+        if include_vuln_stats:
+            # These properties access av.vulnerability per row — N+1 into the
+            # public DB. Only include when the caller is willing to pay the cost
+            # (e.g. single-asset detail responses).
+            data['risk_score'] = self.risk_score
+            data['critical_vulnerability_count'] = self.critical_vulnerability_count
+        else:
+            data['risk_score'] = None
+            data['critical_vulnerability_count'] = None
+
         if include_vulnerabilities:
             data['vulnerabilities'] = [av.to_dict() for av in self.vulnerabilities]
-        
+
         return data
     
     @classmethod

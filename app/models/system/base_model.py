@@ -2,10 +2,15 @@
 SOC360 Base Model
 Model base com campos e métodos comuns a todos os models.
 """
-from datetime import datetime
+from datetime import datetime, timezone
 from sqlalchemy import Column, DateTime, Integer
 from sqlalchemy.ext.declarative import declared_attr
 from app.extensions.db import db
+
+
+def utcnow_naive():
+    """Return UTC now as naive datetime for existing DateTime columns."""
+    return datetime.now(timezone.utc).replace(tzinfo=None)
 
 
 class BaseModel(db.Model):
@@ -22,14 +27,14 @@ class BaseModel(db.Model):
     id = Column(Integer, primary_key=True, autoincrement=True)
     created_at = Column(
         DateTime,
-        default=datetime.utcnow,
+        default=utcnow_naive,
         nullable=False,
         index=True
     )
     updated_at = Column(
         DateTime,
-        default=datetime.utcnow,
-        onupdate=datetime.utcnow,
+        default=utcnow_naive,
+        onupdate=utcnow_naive,
         nullable=False
     )
     
@@ -49,7 +54,7 @@ class BaseModel(db.Model):
         for key, value in kwargs.items():
             if hasattr(self, key):
                 setattr(self, key, value)
-        self.updated_at = datetime.utcnow()
+        self.updated_at = utcnow_naive()
         db.session.commit()
         return self
     
@@ -112,7 +117,6 @@ class BaseModel(db.Model):
 class CoreModel(BaseModel):
     """Model base para tabelas no banco CORE."""
     __abstract__ = True
-    __bind_key__ = 'core'
 
 
 class PublicModel(BaseModel):

@@ -2,9 +2,9 @@
 SOC360 CVE Product Model
 Association table: Vulnerability <-> AffectedProduct (Many-to-Many).
 """
-from datetime import datetime
 from sqlalchemy import Column, String, Integer, DateTime, ForeignKey, PrimaryKeyConstraint
 from app.extensions.db import db
+from app.models.system.base_model import utcnow_naive
 
 
 class CVEProduct(db.Model):
@@ -24,7 +24,7 @@ class CVEProduct(db.Model):
         ForeignKey('affected_products.id', ondelete='CASCADE'),
         nullable=False, index=True
     )
-    created_at = Column(DateTime, default=datetime.utcnow)
+    created_at = Column(DateTime, default=utcnow_naive)
 
     __table_args__ = (
         PrimaryKeyConstraint('cve_id', 'product_id', name='pk_cve_product'),
