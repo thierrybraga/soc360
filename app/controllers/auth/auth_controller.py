@@ -145,8 +145,15 @@ def login():
 
             # Check if account is locked
             if user.is_locked():
-                remaining = int((user.locked_until - datetime.now(timezone.utc)).total_seconds() / 60) + 1
-                flash(f'Conta bloqueada. Tente novamente em {remaining} minuto(s).', 'danger')
+                # locked_until vem do banco como datetime NAIVE (coluna sem tz),
+                # então normalizamos para UTC-aware antes de subtrair de um
+                # datetime aware — caso contrário gera TypeError (naive - aware)
+                # e um 500 em toda tentativa de login de conta bloqueada.
+                locked_until = user.locked_until
+                if locked_until.tzinfo is None:
+                    locked_until = locked_until.replace(tzinfo=timezone.utc)
+                remaining = int((locked_until - datetime.now(timezone.utc)).total_seconds() / 60) + 1
+                flash(f'Conta bloqueada. Tente novamente em {max(remaining, 1)} minuto(s).', 'danger')
                 return render_template('auth/login.html', form=form)
 
             # Successful login — use model method to track IP, count and timestamps

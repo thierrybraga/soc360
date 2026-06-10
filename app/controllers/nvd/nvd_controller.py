@@ -8,7 +8,7 @@ from statistics import mean
 
 from flask import Blueprint, current_app, render_template, request, jsonify
 from flask_login import login_required, current_user
-from sqlalchemy import func
+from sqlalchemy import func, case
 from sqlalchemy.orm import joinedload, selectinload
 
 from app.extensions import db
@@ -261,49 +261,29 @@ def list_vulnerabilities():
     try:
         total_cves = Vulnerability.query.count()
 
-        # Busca (severity, score) com fallback para cvss_metrics
-        sev_rows = db.session.execute(
-            db.select(
-                Vulnerability.base_severity,
-                Vulnerability.cvss_score,
-                func.max(CvssMetric.base_score).label('metric_score'),
-                func.max(CvssMetric.base_severity).label('metric_sev'),
-            )
-            .outerjoin(CvssMetric, CvssMetric.cve_id == Vulnerability.cve_id)
-            .group_by(Vulnerability.cve_id, Vulnerability.base_severity, Vulnerability.cvss_score)
-        ).all()
-
-        _valid = {'CRITICAL', 'HIGH', 'MEDIUM', 'LOW'}
-        count_critical = count_high = count_medium = count_low = 0
-
-        def _score_bucket(score):
-            if score is None:
-                return None
-            if score >= 9.0:
-                return 'CRITICAL'
-            if score >= 7.0:
-                return 'HIGH'
-            if score >= 4.0:
-                return 'MEDIUM'
-            if score > 0:
-                return 'LOW'
-            return None
-
-        for row in sev_rows:
-            sev = row.base_severity if row.base_severity in _valid else None
-            if sev is None:
-                sev = row.metric_sev if row.metric_sev in _valid else None
-            if sev is None:
-                score = row.cvss_score if row.cvss_score is not None else row.metric_score
-                sev = _score_bucket(score)
-            if sev == 'CRITICAL':
-                count_critical += 1
-            elif sev == 'HIGH':
-                count_high += 1
-            elif sev == 'MEDIUM':
-                count_medium += 1
-            elif sev == 'LOW':
-                count_low += 1
+        # Contagem por severidade feita 100% em SQL (uma linha de resultado por
+        # severidade), em vez de trazer UMA LINHA POR CVE para contar em Python.
+        # O método anterior transferia centenas de milhares de linhas a cada
+        # carregamento da lista (lento e propenso a timeout do worker em base
+        # cheia). Bucketiza por base_severity com fallback para cvss_score.
+        _valid = ('CRITICAL', 'HIGH', 'MEDIUM', 'LOW')
+        sev_bucket = case(
+            (Vulnerability.base_severity.in_(_valid), Vulnerability.base_severity),
+            (Vulnerability.cvss_score >= 9.0, 'CRITICAL'),
+            (Vulnerability.cvss_score >= 7.0, 'HIGH'),
+            (Vulnerability.cvss_score >= 4.0, 'MEDIUM'),
+            (Vulnerability.cvss_score > 0, 'LOW'),
+            else_=None,
+        )
+        counts = dict(
+            db.session.execute(
+                db.select(sev_bucket.label('sev'), func.count()).group_by(sev_bucket)
+            ).all()
+        )
+        count_critical = counts.get('CRITICAL', 0)
+        count_high = counts.get('HIGH', 0)
+        count_medium = counts.get('MEDIUM', 0)
+        count_low = counts.get('LOW', 0)
     except Exception as _stats_err:
         logger.error(f'Stats query error: {type(_stats_err).__name__}: {_stats_err}')
         count_critical = count_high = count_medium = count_low = 0

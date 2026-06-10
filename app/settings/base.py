@@ -23,7 +23,12 @@ class BaseConfig:
     WTF_CSRF_TIME_LIMIT = None
     # Headers accepted by Flask-WTF for token lookup (first match wins)
     WTF_CSRF_HEADERS = ['X-CSRFToken', 'X-CSRF-Token', 'X-XSRF-TOKEN']
-    
+    # Não exigir checagem de Referer em HTTPS. Atrás de um proxy que termina TLS
+    # (nginx), a checagem SSL-strict de Referer é frágil (depende de Referrer-
+    # Policy do browser/extensões) e pode bloquear o login em loop. O próprio
+    # token CSRF (ligado à sessão) continua sendo a proteção efetiva.
+    WTF_CSRF_SSL_STRICT = False
+
     # Session
     SESSION_COOKIE_SECURE = os.environ.get('SESSION_COOKIE_SECURE', 'True').lower() == 'true'
     SESSION_COOKIE_HTTPONLY = True
