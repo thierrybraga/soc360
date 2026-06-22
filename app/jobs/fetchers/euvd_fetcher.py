@@ -19,10 +19,19 @@ class EUVDFetcher(BaseFetcher):
     BASE_URL = "https://euvdservices.enisa.europa.eu/api/"
     
     def __init__(self, timeout: int = 30):
-        super().__init__(timeout, user_agent='SOC360/1.0 (Internal Tool)')
-        # Additional headers if needed
+        # A API da ENISA fica atrás de um WAF (Cloudflare) que responde 403 a
+        # User-Agents não-browser (ex.: 'SOC360/1.0'). Usamos um UA de browser
+        # + headers de navegador para evitar o bloqueio.
+        super().__init__(
+            timeout,
+            user_agent=(
+                'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 '
+                '(KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36'
+            ),
+        )
         self.session.headers.update({
-            'Accept': 'application/json'
+            'Accept': 'application/json, text/plain, */*',
+            'Accept-Language': 'en-US,en;q=0.9',
         })
 
     def fetch_search(
