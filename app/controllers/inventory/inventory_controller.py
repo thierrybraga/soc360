@@ -12,7 +12,7 @@ from app.extensions import db
 from app.models.inventory import Asset, AssetVulnerability, Vendor, Product, AssetCategory
 from app.models.nvd import Vulnerability
 from app.models.system import AssetType, AssetStatus, VulnerabilityStatus
-from app.utils.security import role_required, owner_or_admin_required, audit_action
+from app.utils.security import role_required, owner_or_admin_required
 from app.services.inventory import get_asset_correlation_service
 
 
@@ -61,7 +61,6 @@ def list_categories():
 @inventory_bp.route('/api/categories', methods=['POST'])
 @login_required
 @role_required('ADMIN', 'ANALYST')
-@audit_action('inventory.category_create')
 def create_category():
     """API: Criar nova categoria."""
     data = request.get_json()

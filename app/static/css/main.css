@@ -7,10 +7,10 @@
  * ARQUITETURA:
  *   main.css carrega estilos GLOBAIS (presentes em todas as páginas).
  *   Estilos de página específica são carregados via {% block extra_css %} em cada template:
- *     - dashboard.css  → core/dashboard.html, core/index.html
- *     - vulnerabilities.css → nvd/*, vulnerabilities/*
+ *     - dashboard.css  → core/dashboard.html
+ *     - vulnerabilities.css → nvd/*
  *     - auth.css       → auth/*
- *     - assets.css     → inventory/*, assets/*
+ *     - assets.css     → inventory/*
  *     - reports.css    → reports/*
  */
 

@@ -15,7 +15,6 @@ class Weakness(PublicModel):
     Uma CVE pode ter múltiplas CWEs associadas.
     """
     __tablename__ = 'weaknesses'
-    __bind_key__ = 'public'
     __table_args__ = (
         UniqueConstraint('cve_id', 'cwe_id', 'source', name='uq_weakness_cve_cwe_source'),
     )

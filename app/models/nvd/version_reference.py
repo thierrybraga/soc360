@@ -14,7 +14,6 @@ class VersionReference(PublicModel):
     Armazena informacoes sobre versoes afetadas e corrigidas.
     """
     __tablename__ = 'version_ref'
-    __bind_key__ = 'public'
 
     cve_id = Column(
         String(20),

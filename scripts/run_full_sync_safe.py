@@ -51,8 +51,7 @@ def main():
         
         # System models
         from app.models.system import (
-            SyncMetadata, ChatSession, ChatMessage, ChatLog,
-            NewsletterSubscription, NewsletterSubscriber
+            SyncMetadata, ChatSession, ChatMessage,
         )
         
         # Auth models

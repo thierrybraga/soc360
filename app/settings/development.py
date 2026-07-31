@@ -4,6 +4,7 @@ Configurations optimized for local development.
 """
 import os
 from app.settings.base import BaseConfig
+from app.settings.database import DEFAULT_SQLITE_PATH, sqlite_database_config
 
 
 class DevelopmentConfig(BaseConfig):
@@ -21,13 +22,6 @@ class DevelopmentConfig(BaseConfig):
     DB_CORE_HOST = os.environ.get('DB_CORE_HOST', 'localhost')
     DB_PUBLIC_HOST = os.environ.get('DB_PUBLIC_HOST', 'localhost')
     
-    # Re-define URIs to use local hosts (overriding BaseConfig)
-    SQLALCHEMY_DATABASE_URI = f"postgresql://{BaseConfig.DB_CORE_USER}:{BaseConfig.DB_CORE_PASSWORD}@{DB_CORE_HOST}:{BaseConfig.DB_CORE_PORT}/{BaseConfig.DB_CORE_NAME}"
-    
-    SQLALCHEMY_BINDS = {
-        'public': f"postgresql://{BaseConfig.DB_PUBLIC_USER}:{BaseConfig.DB_PUBLIC_PASSWORD}@{DB_PUBLIC_HOST}:{os.environ.get('DB_PUBLIC_PORT', BaseConfig.DB_PUBLIC_PORT)}/{BaseConfig.DB_PUBLIC_NAME}"
-    }
-
     # Redis - localhost
     REDIS_HOST = os.environ.get('REDIS_HOST', 'localhost')
     
@@ -47,40 +41,18 @@ class DevelopmentConfig(BaseConfig):
     }
     
     # SQLite fallback support - Enabled by default if file exists or USE_SQLITE is set
-    basedir = os.path.abspath(os.path.dirname(os.path.dirname(os.path.dirname(__file__))))
-    db_path = os.path.join(basedir, 'instance', 'app.db')
+    db_path = str(DEFAULT_SQLITE_PATH)
 
     if os.environ.get('USE_SQLITE') or not os.environ.get('DB_CORE_HOST') or not os.path.exists(db_path):
         # If no DB host configured or explicitly requested, use SQLite
         # However, maintain compatibility: if app.db doesn't exist, force SQLite
         # for automatic initialization.
-        print(f"DEBUG: Enabling SQLite Mode (DB Path: {db_path})")
-        SQLALCHEMY_DATABASE_URI = 'sqlite:///' + db_path
-        SQLALCHEMY_BINDS = {
-            'public': 'sqlite:///' + db_path
-        }
-        # SQLite não suporta pool_size/pool_recycle; StaticPool evita erros de thread
-        from sqlalchemy.pool import StaticPool
-        SQLALCHEMY_ENGINE_OPTIONS = {
-            'connect_args': {'check_same_thread': False},
-            'poolclass': StaticPool,
-        }
+        SQLALCHEMY_DATABASE_URI, SQLALCHEMY_BINDS = sqlite_database_config(db_path)
         # Disable Redis if using SQLite mode
         # REDIS_URL = None # Keep Redis if available, but Celery can use DB
         if os.environ.get('USE_SQLITE'):
             CELERY_BROKER_URL = 'memory://'
-            CELERY_RESULT_BACKEND = 'db+sqlite:///' + os.path.join(basedir, 'instance', 'celery.db')
-
-    @staticmethod
-    def _is_postgres_available(uri, timeout=3):
-        try:
-            from sqlalchemy import create_engine, text
-            engine = create_engine(uri, pool_pre_ping=True, connect_args={'connect_timeout': timeout})
-            with engine.connect() as conn:
-                conn.execute(text('SELECT 1'))
-            return True
-        except Exception:
-            return False
+            CELERY_RESULT_BACKEND = 'db+sqlite:///' + os.path.join(os.path.dirname(db_path), 'celery.db')
 
     @classmethod
     def init_app(cls, app):
@@ -96,24 +68,13 @@ class TestingConfig(BaseConfig):
     DEBUG = True
     TESTING = True
     
-    # Force localhost for testing if not set
-    DB_CORE_HOST = os.environ.get('DB_CORE_HOST', 'localhost')
-    DB_PUBLIC_HOST = os.environ.get('DB_PUBLIC_HOST', 'localhost')
-    
-    # Re-define URIs to use local hosts
-    SQLALCHEMY_DATABASE_URI = f"postgresql://{BaseConfig.DB_CORE_USER}:{BaseConfig.DB_CORE_PASSWORD}@{DB_CORE_HOST}:{BaseConfig.DB_CORE_PORT}/{BaseConfig.DB_CORE_NAME}"
-    
-    SQLALCHEMY_BINDS = {
-        'public': f"postgresql://{BaseConfig.DB_PUBLIC_USER}:{BaseConfig.DB_PUBLIC_PASSWORD}@{DB_PUBLIC_HOST}:{BaseConfig.DB_PUBLIC_PORT}/{BaseConfig.DB_PUBLIC_NAME}"
+    # Tests are isolated and never depend on an external PostgreSQL service.
+    SQLALCHEMY_DATABASE_URI, SQLALCHEMY_BINDS = sqlite_database_config(':memory:')
+    from sqlalchemy.pool import StaticPool
+    SQLALCHEMY_ENGINE_OPTIONS = {
+        'connect_args': {'check_same_thread': False},
+        'poolclass': StaticPool,
     }
-    
-    # Use SQLite in-memory for tests ONLY if explicitly requested or if no DB configured
-    # Otherwise, respect BaseConfig (PostgreSQL)
-    if os.environ.get('USE_SQLITE_TEST'):
-        SQLALCHEMY_DATABASE_URI = 'sqlite:///:memory:'
-        SQLALCHEMY_BINDS = {
-            'public': 'sqlite:///:memory:'
-        }
     
     # Disable CSRF for testing
     WTF_CSRF_ENABLED = False

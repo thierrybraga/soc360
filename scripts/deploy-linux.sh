@@ -5,8 +5,8 @@
 # NOTE: Does NOT require root/sudo - runs as regular user in docker group
 #
 # Flags opcionais:
-#   --with-ollama   Adiciona overlay docker-compose.ollama.yml (LLM local)
-#   --with-airflow  Adiciona overlay docker-compose.airflow.yml (DAGs Airflow)
+#   --with-ollama   Adiciona overlay infra/compose/docker-compose.ollama.yml (LLM local)
+#   --with-airflow  Adiciona overlay infra/compose/docker-compose.airflow.yml (DAGs Airflow)
 #
 # CHANGELOG:
 #   - Segurança: Permissões 600 em secrets, validação de SECRET_KEY
@@ -31,12 +31,14 @@ if [ -f /etc/oracle-release ]; then
     fi
 fi
 
+COMPOSE_DIR="infra/compose"
+
 # Select base compose file
-if [ "$IS_OL9" = true ] && [ -f "$PROJECT_ROOT/docker-compose.ol9.yml" ]; then
-    BASE_COMPOSE="docker-compose.ol9.yml"
+if [ "$IS_OL9" = true ] && [ -f "$PROJECT_ROOT/$COMPOSE_DIR/docker-compose.ol9.yml" ]; then
+    BASE_COMPOSE="$COMPOSE_DIR/docker-compose.ol9.yml"
     OL9_MODE=true
-elif [ -f "$PROJECT_ROOT/docker-compose.yml" ]; then
-    BASE_COMPOSE="docker-compose.yml"
+elif [ -f "$PROJECT_ROOT/$COMPOSE_DIR/docker-compose.yml" ]; then
+    BASE_COMPOSE="$COMPOSE_DIR/docker-compose.yml"
     OL9_MODE=false
 else
     echo "ERROR: No docker-compose file found"
@@ -78,16 +80,16 @@ confirm() {
 
 # Build compose command with overlays
 build_compose_args() {
-    local args="-f $BASE_COMPOSE"
-    if [ "$WITH_OLLAMA" = true ] && [ -f "$PROJECT_ROOT/docker-compose.ollama.yml" ]; then
-        args="$args -f docker-compose.ollama.yml"
+    local args="--project-directory $PROJECT_ROOT -f $BASE_COMPOSE"
+    if [ "$WITH_OLLAMA" = true ] && [ -f "$PROJECT_ROOT/$COMPOSE_DIR/docker-compose.ollama.yml" ]; then
+        args="$args -f $COMPOSE_DIR/docker-compose.ollama.yml"
     elif [ "$WITH_OLLAMA" = true ]; then
-        log_warn "docker-compose.ollama.yml not found — ignoring --with-ollama"
+        log_warn "infra/compose/docker-compose.ollama.yml not found — ignoring --with-ollama"
     fi
-    if [ "$WITH_AIRFLOW" = true ] && [ -f "$PROJECT_ROOT/docker-compose.airflow.yml" ]; then
-        args="$args -f docker-compose.airflow.yml"
+    if [ "$WITH_AIRFLOW" = true ] && [ -f "$PROJECT_ROOT/$COMPOSE_DIR/docker-compose.airflow.yml" ]; then
+        args="$args -f $COMPOSE_DIR/docker-compose.airflow.yml"
     elif [ "$WITH_AIRFLOW" = true ]; then
-        log_warn "docker-compose.airflow.yml not found — ignoring --with-airflow"
+        log_warn "infra/compose/docker-compose.airflow.yml not found — ignoring --with-airflow"
     fi
     echo "$args"
 }
@@ -348,7 +350,7 @@ backup_before_update() {
     cp -r "$PROJECT_ROOT/secrets" "$backup_dir/" 2>/dev/null || true
     
     # Backup do docker-compose atual
-    cp "$PROJECT_ROOT/$COMPOSE_FILE" "$backup_dir/" 2>/dev/null || true
+    cp "$PROJECT_ROOT/$COMPOSE_FILE" "$backup_dir/$(basename "$COMPOSE_FILE")" 2>/dev/null || true
     
     # Criar symlink para latest
     rm -f "$PROJECT_ROOT/backups/latest"
@@ -394,8 +396,9 @@ rollback() {
     fi
     
     # Restaurar compose file se existir
-    if [ -f "$backup_dir/$COMPOSE_FILE" ]; then
-        cp "$backup_dir/$COMPOSE_FILE" "$PROJECT_ROOT/" && log_success "$COMPOSE_FILE restaurado" || log_warn "Falha ao restaurar compose"
+    if [ -f "$backup_dir/$(basename "$COMPOSE_FILE")" ]; then
+        mkdir -p "$PROJECT_ROOT/$(dirname "$COMPOSE_FILE")"
+        cp "$backup_dir/$(basename "$COMPOSE_FILE")" "$PROJECT_ROOT/$COMPOSE_FILE" && log_success "$COMPOSE_FILE restaurado" || log_warn "Falha ao restaurar compose"
     fi
     
     log_info "Reiniciando serviços..."
@@ -1045,8 +1048,8 @@ main() {
             echo "  verify    - Run full deployment verification checks"
             echo ""
             echo "Optional overlays:"
-            echo "  --with-ollama       Add Ollama local LLM (requires docker-compose.ollama.yml)"
-            echo "  --with-airflow      Add Airflow DAG scheduler (requires docker-compose.airflow.yml)"
+            echo "  --with-ollama       Add Ollama local LLM (requires infra/compose/docker-compose.ollama.yml)"
+            echo "  --with-airflow      Add Airflow DAG scheduler (requires infra/compose/docker-compose.airflow.yml)"
             echo ""
             echo "Modifiers:"
             echo "  --non-interactive   Skip all confirmation prompts (alias: --yes, -y)"

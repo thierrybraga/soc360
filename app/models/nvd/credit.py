@@ -12,7 +12,6 @@ class Credit(PublicModel):
     Model de crédito/reconhecimento para uma CVE.
     """
     __tablename__ = 'credits'
-    __bind_key__ = 'public'
     __table_args__ = (
         UniqueConstraint('cve_id', 'value', 'type', 'user', name='uq_credit_cve_value_type_user'),
     )

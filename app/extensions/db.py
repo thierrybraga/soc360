@@ -22,27 +22,3 @@ db = SQLAlchemy(metadata=metadata)
 
 # Instância global do Flask-Migrate
 migrate = Migrate()
-
-
-def init_db(app):
-    """Inicializa o banco de dados com a aplicação Flask."""
-    db.init_app(app)
-    migrate.init_app(app, db)
-    
-    with app.app_context():
-        # Importar models para registrar no metadata
-        from app.models import (
-            User, Role, UserRole,
-            Vulnerability, CvssMetric, Weakness, Reference, Mitigation,
-            Asset, AssetVulnerability, Vendor, Product,
-            MonitoringRule, Alert, Report, RiskAssessment,
-            SyncMetadata, ApiCallLog,
-            Tactic, Technique, AttackMitigation
-        )
-    
-    return db
-
-
-def get_db():
-    """Retorna a instância do banco de dados."""
-    return db

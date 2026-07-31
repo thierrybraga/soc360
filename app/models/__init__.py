@@ -23,9 +23,6 @@ from app.models.system import (
     SyncMetadata,
     ChatSession,
     ChatMessage,
-    ChatLog,
-    NewsletterSubscription,
-    NewsletterSubscriber,
 )
 
 # Auth Models
@@ -45,10 +42,21 @@ from app.models.nvd import (
     Weakness,
     Reference,
     Mitigation,
+    Credit,
+    AffectedProduct,
     CVEProduct,
     CVEVendor,
     ReferenceTypeModel,
     VersionReference,
+)
+
+# D3FEND Models
+from app.models.d3fend import (
+    D3fendTechnique,
+    D3fendArtifact,
+    D3fendTactic,
+    D3fendOffensiveMapping,
+    CveD3fendCorrelation,
 )
 
 # Inventory Models
@@ -107,25 +115,31 @@ __all__ = [
     'SyncMetadata',
     'ChatSession',
     'ChatMessage',
-    'ChatLog',
-    'NewsletterSubscription',
-    'NewsletterSubscriber',
 
     # Auth
     'User',
     'Role',
     'UserRole',
-    
+
     # NVD
     'Vulnerability',
     'CvssMetric',
     'Weakness',
     'Reference',
     'Mitigation',
+    'Credit',
+    'AffectedProduct',
     'CVEProduct',
     'CVEVendor',
     'ReferenceTypeModel',
     'VersionReference',
+
+    # D3FEND
+    'D3fendTechnique',
+    'D3fendArtifact',
+    'D3fendTactic',
+    'D3fendOffensiveMapping',
+    'CveD3fendCorrelation',
 
     # Inventory
     'Asset',

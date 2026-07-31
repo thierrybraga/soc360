@@ -99,7 +99,7 @@ Built for enterprise security teams, Open-Monitor helps organizations:
 
 4. **Start the services**
    ```bash
-   docker-compose up -d
+   docker compose --project-directory . -f infra/compose/docker-compose.yml up -d
    ```
 
 5. **Access the application**
@@ -294,22 +294,22 @@ mypy app/
 
 ### SSL Configuration
 
-1. Place your certificates in `docker/nginx/ssl/`:
+1. Place your certificates in `infra/docker/nginx/ssl/`:
    - `fullchain.pem` - Certificate chain
    - `privkey.pem` - Private key
 
-2. Uncomment HTTPS server block in `docker/nginx/conf.d/default.conf`
+2. Configure the HTTPS server in `infra/docker/nginx/conf.d/openmonitor.conf`.
 
-3. Restart NGINX: `docker-compose restart nginx`
+3. Restart NGINX: `docker compose --project-directory . -f infra/compose/docker-compose.yml restart nginx`
 
 ### Scaling
 
 ```bash
 # Scale application workers
-docker-compose up -d --scale app=3
+docker compose --project-directory . -f infra/compose/docker-compose.yml up -d --scale app=3
 
 # Scale Celery workers
-docker-compose up -d --scale celery-worker=4
+docker compose --project-directory . -f infra/compose/docker-compose.yml up -d --scale celery-worker=4
 ```
 
 ## Troubleshooting
@@ -319,10 +319,10 @@ docker-compose up -d --scale celery-worker=4
 **Database connection errors**
 ```bash
 # Check database logs
-docker-compose logs db-core db-public
+docker compose --project-directory . -f infra/compose/docker-compose.yml logs db-core db-public
 
 # Verify connections
-docker-compose exec app flask shell
+docker compose --project-directory . -f infra/compose/docker-compose.yml exec app flask shell
 >>> from app.extensions.db import db
 >>> db.engine.execute('SELECT 1')
 ```
@@ -333,26 +333,26 @@ docker-compose exec app flask shell
 curl http://localhost/nvd/api/sync/status
 
 # View sync logs
-docker-compose logs -f celery-worker
+docker compose --project-directory . -f infra/compose/docker-compose.yml logs -f celery-worker
 ```
 
 **Redis connection issues**
 ```bash
 # Test Redis connection
-docker-compose exec redis redis-cli ping
+docker compose --project-directory . -f infra/compose/docker-compose.yml exec redis redis-cli ping
 ```
 
 ### Logs
 
 ```bash
 # Application logs
-docker-compose logs -f app
+docker compose --project-directory . -f infra/compose/docker-compose.yml logs -f app
 
 # All services
-docker-compose logs -f
+docker compose --project-directory . -f infra/compose/docker-compose.yml logs -f
 
 # Specific service
-docker-compose logs -f celery-worker
+docker compose --project-directory . -f infra/compose/docker-compose.yml logs -f celery-worker
 ```
 
 ## Contributing

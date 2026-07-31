@@ -12,14 +12,14 @@ Enterprise vulnerability management platform. Integrates NVD, EUVD, MITRE ATT&CK
 # Dev server
 python run.py
 
-# Docker — core stack (nginx, app, celery, redis)
-docker compose up -d
-docker compose down
-docker compose logs -f app
+# Docker — core stack (nginx, app, celery, redis) — sempre com --project-directory (compose files ficam em infra/compose/)
+docker compose --project-directory . -f infra/compose/docker-compose.yml up -d
+docker compose --project-directory . -f infra/compose/docker-compose.yml down
+docker compose --project-directory . -f infra/compose/docker-compose.yml logs -f app
 
 # Docker — overlays opcionais
-docker compose -f docker-compose.yml -f docker-compose.ollama.yml up -d   # + LLM local
-docker compose -f docker-compose.yml -f docker-compose.airflow.yml up -d  # + Airflow DAGs
+docker compose --project-directory . -f infra/compose/docker-compose.yml -f infra/compose/docker-compose.ollama.yml up -d   # + LLM local
+docker compose --project-directory . -f infra/compose/docker-compose.yml -f infra/compose/docker-compose.airflow.yml up -d  # + Airflow DAGs
 
 # Oracle Linux 9
 ./scripts/deploy-linux.sh start                         # core stack
@@ -146,7 +146,28 @@ scripts/
 secrets/                  # Arquivos de secret (git-ignored, nunca commitar *.txt)
 ├── README.md             # Instruções de setup
 └── .gitkeep
+
+infra/
+├── compose/              # Todos os docker-compose*.yml (core, overlays, variantes de SO)
+│   ├── docker-compose.yml           # Core stack — Linux/prod
+│   ├── docker-compose.windows.yml   # Core stack — Windows/Docker Desktop
+│   ├── docker-compose.ol9.yml       # Core stack — Oracle Linux 9
+│   ├── docker-compose.ollama.yml    # Overlay — LLM local
+│   └── docker-compose.airflow.yml   # Overlay — Airflow DAGs
+├── docker/
+│   ├── entrypoint.sh     # Entrypoint copiado para a imagem app (ver Dockerfile)
+│   └── nginx/            # Build context do serviço nginx (Dockerfile, conf.d, html, ssl)
+├── postgresql/
+│   ├── config/           # postgresql.conf, pg_hba.conf (referência — sem bind-mount ativo)
+│   └── init/             # 01-init.sql (referência — sem bind-mount ativo)
+├── ollama/               # Build context do overlay Ollama (dockerfile, endpoint.sh)
+└── airflow/              # Build context do overlay Airflow (Dockerfile, dags/, requirements.txt)
 ```
+
+Todo comando `docker compose` deve ser executado a partir da raiz do projeto com
+`--project-directory .` — os compose files vivem em `infra/compose/` mas os paths
+relativos internos (build context, secrets, overlays) assumem a raiz como diretório
+do projeto.
 
 ---
 
@@ -198,7 +219,7 @@ response = service.generate_chat_response(message, context, history)
 - `AI_PROVIDER=openai` **(default)** → `OpenAIService`
   - Com `OPENAI_API_KEY`: respostas reais, modelo `gpt-4o-mini`
   - Sem chave: demo mode automático (respostas simuladas, sem erros)
-- `AI_PROVIDER=ollama` → `OllamaService` (local, requer overlay `docker-compose.ollama.yml`)
+- `AI_PROVIDER=ollama` → `OllamaService` (local, requer overlay `infra/compose/docker-compose.ollama.yml`)
   - `OLLAMA_BASE_URL` aponta para container: `http://ollama:11434/v1`
   - Default model: `gemma4:e4b`
 - RAG pipeline: `app/services/core/rag_service.py` — enriches context with CVE DB data
@@ -310,11 +331,11 @@ CELERY_BEAT_SCHEDULE = {
 }
 ```
 
-### Airflow (opcional — `docker-compose.airflow.yml`)
-DAGs em `airflow/dags/`:
+### Airflow (opcional — `infra/compose/docker-compose.airflow.yml`)
+DAGs em `infra/airflow/dags/`:
 - `nvd_sync.py` — incremental às 04:00 diário, full sync domingos às 02:00
 - `euvd_sync.py` — EU Vulnerability Database
 - `mitre_sync.py` — MITRE ATT&CK enrichment
 - `daily_report.py` — geração e distribuição de relatórios
 
-Requer `airflow/.env` (copie de `airflow/.env.example`).
+Requer `infra/airflow/.env` (copie de `infra/airflow/.env.example`).

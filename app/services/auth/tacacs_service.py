@@ -193,11 +193,6 @@ class TacacsService:
     def load_config() -> TacacsConfig:
         return TacacsConfig.load()
 
-    @staticmethod
-    def is_enabled() -> bool:
-        cfg = TacacsConfig.load()
-        return bool(cfg.enabled and cfg.host and cfg.has_secret)
-
     # ── Low-level client construction ───────────────────────────────────
 
     @staticmethod

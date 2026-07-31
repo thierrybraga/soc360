@@ -8,32 +8,10 @@ from flask import Flask
 from app.extensions import db
 from app.models.auth import User, Role
 from app.models.system import SyncMetadata
-from sqlalchemy import inspect, text, create_engine
-
-
-def _is_postgres_available(uri: str, timeout: int = 3) -> bool:
-    """Verifica se o PostgreSQL está acessível na URI fornecida."""
-    try:
-        test_engine = create_engine(uri, pool_pre_ping=True, connect_args={'connect_timeout': timeout})
-        with test_engine.connect() as conn:
-            conn.execute(text('SELECT 1'))
-        return True
-    except Exception:
-        return False
+from sqlalchemy import inspect, text
 
 logger = logging.getLogger(__name__)
 
-
-def _sqlite_fallback_allowed() -> bool:
-    """SQLite só é permitido em modo local.
-
-    Liberado quando ``ALLOW_SQLITE_FALLBACK=true`` (override explícito) ou
-    quando o ambiente não é produção. Em produção o fallback é bloqueado para
-    nunca rodar silenciosamente sobre SQLite.
-    """
-    if os.environ.get('ALLOW_SQLITE_FALLBACK', '').strip().lower() == 'true':
-        return True
-    return os.environ.get('FLASK_ENV', 'development').strip().lower() != 'production'
 
 def _sqlite_col_type(column) -> str:
     """Converte o tipo SQLAlchemy de uma coluna para um tipo SQLite válido."""
@@ -246,44 +224,6 @@ def check_and_init_db(app: Flask):
     db_path = os.path.join(basedir, 'instance', 'app.db')
 
     db_uri = app.config.get('SQLALCHEMY_DATABASE_URI', '')
-
-    # Se estiver em modo PostgreSQL e não acessível, faz fallback para SQLite
-    # APENAS em modo local; em produção, falha com mensagem clara.
-    if db_uri.startswith('postgresql://'):
-        if not _is_postgres_available(db_uri):
-            if not _sqlite_fallback_allowed():
-                raise RuntimeError(
-                    f"PostgreSQL inacessível ({db_uri}) e o fallback para SQLite está "
-                    "desabilitado. SQLite só é permitido em modo local — verifique o "
-                    "serviço Postgres ou defina ALLOW_SQLITE_FALLBACK=true (apenas dev)."
-                )
-            app.logger.warning('Postgres não acessível (%s). Fallback para SQLite em %s', db_uri, db_path)
-            app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///' + db_path
-            app.config['SQLALCHEMY_BINDS'] = {
-                'public': 'sqlite:///' + db_path
-            }
-            # StaticPool compartilha uma única conexão entre threads de forma segura,
-            # evitando "SQLite objects created in a thread can only be used in that same thread".
-            from sqlalchemy.pool import StaticPool
-            app.config['SQLALCHEMY_ENGINE_OPTIONS'] = {
-                'connect_args': {'check_same_thread': False},
-                'poolclass': StaticPool,
-            }
-            app.config['REDIS_URL'] = None
-            app.config['REDIS_HOST'] = 'localhost'
-            app.config['DB_CORE_HOST'] = 'localhost'
-            app.config['DB_PUBLIC_HOST'] = 'localhost'
-            db_uri = app.config['SQLALCHEMY_DATABASE_URI']
-
-            # Rebind SQLAlchemy (o init_extensions pode já estar aplicado com a URI antiga)
-            try:
-                logger.info('Reconectando SQLAlchemy com SQLite após fallback.')
-                from app.extensions import db as app_db
-                app_db.session.remove()
-                app_db.engine.dispose()
-                app_db.init_app(app)
-            except Exception as e:
-                logger.error('Erro ao reconfigurar SQLAlchemy após fallback: %s', e, exc_info=True)
 
     if db_uri.startswith('sqlite:///'):
         if not os.path.exists(db_path):

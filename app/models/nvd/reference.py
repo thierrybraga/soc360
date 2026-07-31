@@ -16,7 +16,6 @@ class Reference(PublicModel):
     Inclui links para advisories, patches, exploits, etc.
     """
     __tablename__ = 'references'
-    __bind_key__ = 'public'
     __table_args__ = (
         UniqueConstraint('cve_id', 'url', name='uq_reference_cve_url'),
     )
@@ -87,7 +86,6 @@ class Mitigation(PublicModel):
     Model de mitigação/workaround para uma CVE.
     """
     __tablename__ = 'mitigations'
-    __bind_key__ = 'public'
     
     # Foreign Key
     cve_id = Column(

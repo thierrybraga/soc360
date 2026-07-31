@@ -2,7 +2,7 @@
 SOC360 Fortinet Presets
 Configurações e CPEs pré-definidos para produtos Fortinet.
 """
-from typing import Dict, List, Optional
+from typing import Dict, List
 from dataclasses import dataclass
 from enum import Enum
 
@@ -463,21 +463,6 @@ CRITICAL_FORTINET_CVES = {
 # HELPER FUNCTIONS
 # ============================================================================
 
-def get_product(product_key: str) -> Optional[FortinetProduct]:
-    """Retorna produto pelo identificador."""
-    return FORTINET_PRODUCTS.get(product_key.lower())
-
-
-def get_all_firewall_products() -> List[FortinetProduct]:
-    """Retorna todos os produtos tipo firewall."""
-    return [p for p in FORTINET_PRODUCTS.values() if p.product_type == FortinetProductType.FIREWALL]
-
-
-def get_all_cpe_prefixes() -> Dict[str, str]:
-    """Retorna mapa de produto -> CPE prefix."""
-    return {k: v.cpe_prefix for k, v in FORTINET_PRODUCTS.items()}
-
-
 def is_version_supported(version: str) -> bool:
     """Verifica se versão FortiOS está em branch suportada."""
     if not version:
@@ -559,66 +544,3 @@ def compare_versions(v1: str, v2: str) -> int:
     return 0
 
 
-def is_version_affected(version: str, affected_range: str) -> bool:
-    """
-    Verifica se versão está em range afetado.
-
-    Args:
-        version: Versão a verificar (ex: "7.4.2")
-        affected_range: Range afetado (ex: "7.4.0-7.4.2" ou ">= 7.0.0, < 7.0.14")
-
-    Returns:
-        True se versão está no range afetado
-    """
-    if not version or not affected_range:
-        return False
-
-    # Formato simples: "7.4.0-7.4.2"
-    if '-' in affected_range and ',' not in affected_range:
-        parts = affected_range.split('-')
-        if len(parts) == 2:
-            start, end = parts
-            return compare_versions(version, start) >= 0 and compare_versions(version, end) <= 0
-
-    # Formato com vírgula: múltiplos ranges
-    if ',' in affected_range:
-        ranges = [r.strip() for r in affected_range.split(',')]
-        for r in ranges:
-            if is_version_affected(version, r):
-                return True
-        return False
-
-    return False
-
-
-# ============================================================================
-# SEED DATA GENERATOR
-# ============================================================================
-
-def generate_vendor_product_seeds():
-    """
-    Gera dados de seed para vendors e products.
-
-    Returns:
-        Tuple (vendor_data, products_data)
-    """
-    vendor = {
-        'name': 'Fortinet',
-        'normalized_name': 'fortinet',
-        'website': 'https://www.fortinet.com',
-        'support_url': 'https://support.fortinet.com',
-        'security_contact': 'psirt@fortinet.com',
-        'description': 'Fortinet, Inc. - Cybersecurity Solutions'
-    }
-
-    products = []
-    for key, product in FORTINET_PRODUCTS.items():
-        products.append({
-            'name': product.name,
-            'normalized_name': product.cpe_product,
-            'cpe_string': product.build_cpe(),
-            'product_type': product.cpe_part,
-            'description': product.description
-        })
-
-    return vendor, products

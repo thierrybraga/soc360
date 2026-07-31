@@ -8,18 +8,16 @@ import pytest
 import json
 from unittest.mock import patch, MagicMock
 from app import create_app
-from extensions import db
-from models.vulnerability import Vulnerability
-from models.asset import Asset
-from models.user import User
+from app.extensions import db
+from app.models.nvd import Vulnerability
+from app.models.inventory import Asset
+from app.models.auth import User
 
 
 @pytest.fixture
 def client():
     """Create test client with test database."""
-    app = create_app()
-    app.config['TESTING'] = True
-    app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///:memory:'
+    app = create_app('testing')
 
     with app.app_context():
         db.create_all()
@@ -75,7 +73,7 @@ class TestAPIV1Endpoints:
         response = client.get('/api/v1/cves?severity=HIGH')
         assert response.status_code == 200
 
-    @patch('controllers.api_controller.Vulnerability.query')
+    @patch('app.controllers.api.api_controller.Vulnerability.query')
     def test_get_cve_detail(self, mock_query, client):
         """Test getting specific CVE details."""
         # Mock CVE object

@@ -16,7 +16,6 @@ class CvssMetric(PublicModel):
     Uma CVE pode ter múltiplas métricas de diferentes fontes.
     """
     __tablename__ = 'cvss_metrics'
-    __bind_key__ = 'public'
     __table_args__ = (
         UniqueConstraint('cve_id', 'version', 'source', name='uq_cvss_metric_cve_version_source'),
     )

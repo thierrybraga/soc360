@@ -216,49 +216,5 @@ class SecurityHeadersService:
             self._csp_config[directive].remove(source)
 
 
-# Configurações CSP para diferentes ambientes
-CSP_DEVELOPMENT = {
-    'default-src': ["'self'"],
-    'script-src': ["'self'", "'unsafe-inline'", "'unsafe-eval'"],  # Dev tools
-    'style-src': ["'self'", "'unsafe-inline'", "https://fonts.googleapis.com"],
-    'img-src': ["'self'", "data:", "https:", "http:"],
-    'font-src': ["'self'", "https://fonts.gstatic.com", "data:"],
-    'connect-src': ["'self'", "ws:", "wss:"],  # WebSocket for hot reload
-    'frame-src': ["'self'"],
-    'object-src': ["'none'"],
-    'base-uri': ["'self'"],
-}
-
-CSP_PRODUCTION = {
-    'default-src': ["'self'"],
-    'script-src': ["'self'", "'nonce-{nonce}'"],
-    'style-src': ["'self'", "'nonce-{nonce}'", "https://fonts.googleapis.com"],
-    'img-src': ["'self'", "data:", "https:"],
-    'font-src': ["'self'", "https://fonts.gstatic.com"],
-    'connect-src': ["'self'", "https://services.nvd.nist.gov"],  # NVD API
-    'frame-src': ["'none'"],
-    'object-src': ["'none'"],
-    'base-uri': ["'self'"],
-    'form-action': ["'self'"],
-    'frame-ancestors': ["'none'"],
-    'upgrade-insecure-requests': [],
-}
-
-
-def get_csp_config(environment: str = 'production') -> Dict[str, List[str]]:
-    """
-    Get CSP configuration for environment.
-    
-    Args:
-        environment: 'development' or 'production'
-        
-    Returns:
-        CSP configuration dictionary
-    """
-    if environment == 'development':
-        return CSP_DEVELOPMENT.copy()
-    return CSP_PRODUCTION.copy()
-
-
 # Global instance
 security_headers = SecurityHeadersService()

@@ -5,9 +5,8 @@
 ```
 open-monitor/
 ├── app/           # Flask application (controllers, models, services)
-├── airflow/       # Airflow DAGs and configuration
-├── scripts/       # Utility scripts (db, admin, deploy)
-├── infra/         # Docker, nginx, infrastructure
+├── scripts/       # Utility scripts (deploy, secrets, NVD sync)
+├── infra/         # Docker compose, nginx, Airflow DAGs, Ollama, PostgreSQL config
 ├── tests/         # Unit, integration, e2e tests
 ├── docs/          # Documentation
 ├── migrations/    # Alembic database migrations

@@ -14,7 +14,6 @@ class AffectedProduct(PublicModel):
     Armazena dados mais estruturados que o JSON simples do NVD.
     """
     __tablename__ = 'affected_products'
-    __bind_key__ = 'public'
     __table_args__ = (
         UniqueConstraint('cve_id', 'vendor', 'product', name='uq_affected_product_cve_vendor_product'),
     )

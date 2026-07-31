@@ -7,20 +7,18 @@ Tests full request/response cycles with database interactions.
 import pytest
 import json
 from app import create_app
-from extensions import db
-from models.vulnerability import Vulnerability
-from models.asset import Asset
-from models.user import User
-from models.monitoring_rule import MonitoringRule
+from app.extensions import db
+from app.models.nvd import Vulnerability
+from app.models.inventory import Asset
+from app.models.auth import User
+from app.models.monitoring import MonitoringRule
 from datetime import datetime
 
 
 @pytest.fixture
 def client():
     """Create test client with test database."""
-    app = create_app()
-    app.config['TESTING'] = True
-    app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///:memory:'
+    app = create_app('testing')
 
     with app.app_context():
         db.create_all()

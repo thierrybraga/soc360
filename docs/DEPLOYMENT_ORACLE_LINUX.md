@@ -99,7 +99,7 @@ grep -o 'avx2' /proc/cpuinfo | head -1
 All containers run as non-root users with minimal capabilities:
 
 ```yaml
-# Security configuration in docker-compose.ol9.yml
+# Security configuration in infra/compose/docker-compose.ol9.yml
 security_opt:
   - no-new-privileges:true
 cap_drop:
@@ -139,7 +139,7 @@ OLLAMA_NUM_THREADS=8
 OL9 deployment uses higher resource limits by default:
 
 ```yaml
-# docker-compose.ol9.yml
+# infra/compose/docker-compose.ol9.yml
 app:
   deploy:
     resources:
@@ -353,9 +353,9 @@ sudo dnf install -y podman podman-docker
 # Deploy without root
 ./scripts/deploy-linux.sh start
 
-# Or with podman-compose
+# Or with podman-compose (run from repo root)
 pip3 install podman-compose
-podman-compose -f docker-compose.ol9.yml up -d
+podman-compose --project-directory . -f infra/compose/docker-compose.ol9.yml up -d
 ```
 
 ## Performance Monitoring

@@ -521,13 +521,3 @@ def api_asset_vulnerabilities(asset_id):
         'vulnerabilities': results,
         'total': len(results)
     })
-
-
-# ============================================================================
-# REGISTRO DO BLUEPRINT
-# ============================================================================
-
-def init_app(app):
-    """Registra blueprint na aplicação."""
-    app.register_blueprint(fortinet_bp)
-    logger.info("Fortinet blueprint registered")

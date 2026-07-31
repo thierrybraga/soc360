@@ -4,7 +4,6 @@ Background jobs and data fetchers.
 """
 
 from .fetchers import *
-from .dispatchers import *
 from .report_generation import trigger_report_generation
 
 

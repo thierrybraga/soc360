@@ -33,7 +33,6 @@ class Tactic(PublicModel):
     Representa uma Tática do MITRE ATT&CK (ex: Initial Access, Persistence).
     """
     __tablename__ = 'mitre_tactics'
-    __bind_key__ = 'public'
     
     stix_id = Column(String(100), unique=True, nullable=False, index=True)
     external_id = Column(String(20), unique=True, nullable=False, index=True) # TA0001
@@ -66,7 +65,6 @@ class Technique(PublicModel):
     Representa uma Técnica ou Sub-técnica do MITRE ATT&CK (ex: Phishing, DLL Side-Loading).
     """
     __tablename__ = 'mitre_techniques'
-    __bind_key__ = 'public'
     
     stix_id = Column(String(100), unique=True, nullable=False, index=True)
     external_id = Column(String(20), unique=True, nullable=False, index=True) # T1001 or T1001.001
@@ -115,7 +113,6 @@ class AttackMitigation(PublicModel):
     Representa uma Mitigação do MITRE ATT&CK (ex: Antivirus, Data Backup).
     """
     __tablename__ = 'mitre_attack_mitigations'
-    __bind_key__ = 'public'
     
     stix_id = Column(String(100), unique=True, nullable=False, index=True)
     external_id = Column(String(20), unique=True, nullable=False, index=True) # M1001

@@ -335,11 +335,3 @@ class UmbrellaAPIClient:
             })
         result.sort(key=lambda x: x["blockedRequests"], reverse=True)
         return {"identities": result}
-
-
-def format_number(num):
-    if num >= 1000000:
-        return f"{num/1000000:.1f}M"
-    elif num >= 1000:
-        return f"{num/1000:.1f}K"
-    return str(num)

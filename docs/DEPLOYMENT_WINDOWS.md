@@ -82,7 +82,7 @@ MAIL_PASSWORD=your-password
 
 ### Services Configuration
 
-The Windows deployment uses `docker-compose.windows.yml` which is optimized for Windows:
+The Windows deployment uses `infra/compose/docker-compose.windows.yml` which is optimized for Windows:
 
 - **Ollama disabled by default** - Enable in compose file if needed
 - **SQLite instead of PostgreSQL** - Easier setup for Windows
@@ -91,7 +91,7 @@ The Windows deployment uses `docker-compose.windows.yml` which is optimized for 
 To use the standard compose file instead:
 
 ```powershell
-$env:COMPOSE_FILE="docker-compose.yml"
+$env:COMPOSE_FILE="infra/compose/docker-compose.yml"
 .\scripts\deploy-windows.ps1 start
 ```
 

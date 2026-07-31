@@ -1,0 +1,306 @@
+# docker-compose.ol9.yml - SOC360 v1.0 (Oracle Linux 9)
+# Stack core: nginx, app, celery-worker, celery-beat, redis
+# Otimizado para Oracle Linux 9 (AVX2, rootless containers, bind-mount volumes)
+#
+# Uso (a partir da raiz do projeto):
+#   docker compose --project-directory . -f infra/compose/docker-compose.ol9.yml up -d
+#
+# Serviços opcionais (mesmos overlays do docker-compose.yml):
+#   Ollama:  docker compose --project-directory . -f infra/compose/docker-compose.ol9.yml -f infra/compose/docker-compose.ollama.yml up -d
+#   Airflow: docker compose --project-directory . -f infra/compose/docker-compose.ol9.yml -f infra/compose/docker-compose.airflow.yml up -d
+
+x-app-defaults: &app-defaults
+  build:
+    context: .
+    dockerfile: Dockerfile.ol9
+    target: production
+  image: soc360:ol9-1.0.0
+  restart: unless-stopped
+  networks:
+    - soc360-network
+  environment: &app-env
+    - FLASK_ENV=production
+    - FLASK_APP=app:create_app
+    - FLASK_DEBUG=0
+    - PYTHONPATH=/app
+    - SECRET_KEY_FILE=/run/secrets/secret_key
+    - DATABASE_URL=sqlite:///instance/app.db
+
+    # Redis (obrigatório) - password via secrets
+    - REDIS_HOST=redis
+    - REDIS_PORT=6379
+    - REDIS_PASSWORD_FILE=/run/secrets/redis_password
+
+    # AI Provider (padrão: openai — usa demo mode sem OPENAI_API_KEY)
+    # Para usar Ollama local: AI_PROVIDER=ollama + overlay docker-compose.ollama.yml
+    - AI_PROVIDER=${AI_PROVIDER:-openai}
+    - OPENAI_API_KEY=${OPENAI_API_KEY:-}
+    - OPENAI_MODEL=${OPENAI_MODEL:-gpt-4o-mini}
+
+    # External APIs
+    - NVD_API_KEY=${NVD_API_KEY:-}
+
+    # Email (SMTP)
+    - MAIL_SERVER=${MAIL_SERVER:-}
+    - MAIL_PORT=${MAIL_PORT:-587}
+    - MAIL_USE_TLS=true
+    - MAIL_USERNAME=${MAIL_USERNAME:-}
+    - MAIL_PASSWORD=${MAIL_PASSWORD:-}
+    - MAIL_DEFAULT_SENDER=${MAIL_DEFAULT_SENDER:-noreply@soc360.local}
+
+    # Security
+    - SESSION_COOKIE_SECURE=true
+    - SESSION_COOKIE_HTTPONLY=true
+    - SESSION_COOKIE_SAMESITE=Lax
+    - WTF_CSRF_ENABLED=true
+
+    # Observability
+    - LOG_LEVEL=${LOG_LEVEL:-WARNING}
+
+    # App Tuning (OL9 tem mais recursos)
+    - WORKERS=${WORKERS:-4}
+    - THREADS=${THREADS:-2}
+    - PORT=5000
+  volumes:
+    - soc360-logs:/app/logs
+    - soc360-uploads:/app/uploads
+    - soc360-reports:/app/reports
+    - soc360-instance:/app/instance
+    - soc360-static:/app/app/static
+  healthcheck:
+    test: ["CMD", "curl", "-sf", "http://localhost:5000/health"]
+    interval: 30s
+    timeout: 10s
+    retries: 5
+    start_period: 180s
+  deploy:
+    resources:
+      limits:
+        cpus: '4'
+        memory: 4G
+      reservations:
+        cpus: '1'
+        memory: 1G
+
+x-celery-defaults: &celery-defaults
+  <<: *app-defaults
+  healthcheck:
+    disable: true
+
+# =============================================================================
+# SERVICES (Core Stack)
+# =============================================================================
+services:
+  # -------------------------------------------------------------------------
+  # Reverse Proxy (NGINX)
+  # -------------------------------------------------------------------------
+  nginx:
+    build:
+      context: ./infra/docker/nginx
+      dockerfile: Dockerfile
+    container_name: soc360-nginx
+    restart: unless-stopped
+    ports:
+      - "${HTTP_PORT:-80}:8080"
+      - "${HTTPS_PORT:-443}:8443"
+    volumes:
+      - ./infra/docker/nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./infra/docker/nginx/conf.d:/etc/nginx/conf.d:ro
+      - ./infra/docker/nginx/ssl:/etc/nginx/ssl:ro
+      - ./infra/docker/nginx/html:/usr/share/nginx/html:ro
+      - soc360-static:/app/app/static:ro
+      - soc360-uploads:/app/uploads:ro
+      - soc360-reports:/app/reports:ro
+      - soc360-nginx-logs:/var/log/nginx
+    networks:
+      - soc360-network
+    depends_on:
+      app:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-sf", "http://localhost:8080/nginx-health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 256M
+        reservations:
+          cpus: '0.1'
+          memory: 64M
+
+  # -------------------------------------------------------------------------
+  # Flask Application (Gunicorn) — Rootless
+  # -------------------------------------------------------------------------
+  app:
+    <<: *app-defaults
+    container_name: soc360-app
+    depends_on:
+      redis:
+        condition: service_healthy
+    entrypoint: ["/entrypoint.sh"]
+    command: ["gunicorn", "app:create_app()"]
+    secrets:
+      - secret_key
+      - redis_password
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    cap_add:
+      - CHOWN
+      - SETGID
+      - SETUID
+
+  # -------------------------------------------------------------------------
+  # Celery Worker — Rootless
+  # -------------------------------------------------------------------------
+  celery-worker:
+    <<: *celery-defaults
+    container_name: soc360-celery-worker
+    depends_on:
+      app:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    command: ["celery", "-A", "scripts.workers.celery_worker.celery", "worker", "--loglevel=info", "--concurrency=${CELERY_WORKERS:-4}"]
+    healthcheck:
+      test: ["CMD-SHELL", "celery -A scripts.workers.celery_worker.celery inspect ping --timeout 5 || exit 1"]
+      interval: 30s
+      timeout: 15s
+      retries: 3
+      start_period: 60s
+    deploy:
+      resources:
+        limits:
+          cpus: '4'
+          memory: 4G
+        reservations:
+          cpus: '1'
+          memory: 1G
+    secrets:
+      - secret_key
+      - redis_password
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+
+  # -------------------------------------------------------------------------
+  # Celery Beat — Rootless
+  # -------------------------------------------------------------------------
+  celery-beat:
+    <<: *celery-defaults
+    container_name: soc360-celery-beat
+    depends_on:
+      app:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    command: ["celery", "-A", "scripts.workers.celery_worker.celery", "beat",
+              "--loglevel=info",
+              "--schedule=/app/instance/celerybeat-schedule",
+              "--pidfile=/app/instance/celerybeat.pid"]
+    secrets:
+      - secret_key
+      - redis_password
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 512M
+        reservations:
+          cpus: '0.1'
+          memory: 128M
+
+  # -------------------------------------------------------------------------
+  # Redis — password lida do secret file via shell
+  # -------------------------------------------------------------------------
+  redis:
+    image: redis:7-alpine
+    container_name: soc360-redis
+    restart: unless-stopped
+    command: ["sh", "-c", "redis-server --appendonly yes --maxmemory 512mb --maxmemory-policy allkeys-lru --requirepass $$(cat /run/secrets/redis_password)"]
+    volumes:
+      - soc360-redis-data:/data
+    networks:
+      - soc360-network
+    healthcheck:
+      test: ["CMD-SHELL", "redis-cli -a $$(cat /run/secrets/redis_password) ping | grep PONG"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 512M
+        reservations:
+          cpus: '0.1'
+          memory: 128M
+    secrets:
+      - redis_password
+
+# =============================================================================
+# SECRETS (Production)
+# =============================================================================
+secrets:
+  secret_key:
+    file: ./secrets/secret_key.txt
+  redis_password:
+    file: ./secrets/redis_password.txt
+
+# =============================================================================
+# NETWORKS & VOLUMES
+# =============================================================================
+networks:
+  soc360-network:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.28.0.0/16
+
+# OL9 usa bind-mounts para facilitar backup e acesso direto no host
+volumes:
+  soc360-logs:
+    driver: local
+    driver_opts:
+      type: none
+      o: bind
+      device: ${PWD}/logs
+  soc360-uploads:
+    driver: local
+    driver_opts:
+      type: none
+      o: bind
+      device: ${PWD}/uploads
+  soc360-reports:
+    driver: local
+    driver_opts:
+      type: none
+      o: bind
+      device: ${PWD}/reports
+  soc360-instance:
+    driver: local
+    driver_opts:
+      type: none
+      o: bind
+      device: ${PWD}/instance
+  soc360-nginx-logs:
+    driver: local
+  soc360-static:
+    driver: local
+  soc360-redis-data:
+    driver: local
+    driver_opts:
+      type: none
+      o: bind
+      device: ${PWD}/data/redis

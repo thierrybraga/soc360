@@ -137,22 +137,6 @@ class User(CoreModel, UserMixin):
         self.api_key_created_at = None
         db.session.commit()
     
-    def has_role(self, role_name):
-        """Verifica se usuário tem uma role específica."""
-        return self.roles.filter_by(name=role_name).first() is not None
-    
-    def add_role(self, role):
-        """Adiciona role ao usuário."""
-        if not self.has_role(role.name):
-            self.roles.append(role)
-            db.session.commit()
-    
-    def remove_role(self, role):
-        """Remove role do usuário."""
-        if self.has_role(role.name):
-            self.roles.remove(role)
-            db.session.commit()
-    
     def record_login(self, ip_address=None):
         """Registra login bem-sucedido."""
         self.last_login_at = datetime.now(timezone.utc)
@@ -232,21 +216,6 @@ class User(CoreModel, UserMixin):
     def get_by_api_key(cls, api_key):
         """Busca usuário por API key."""
         return cls.query.filter_by(api_key=api_key, is_active=True).first()
-    
-    @classmethod
-    def get_active_users(cls):
-        """Retorna todos os usuários ativos."""
-        return cls.query.filter_by(is_active=True).all()
-    
-    @classmethod
-    def get_admins(cls):
-        """Retorna todos os administradores."""
-        return cls.query.filter_by(is_admin=True, is_active=True).all()
-    
-    @classmethod
-    def has_active_users(cls):
-        """Verifica se existem usuários ativos no sistema."""
-        return cls.query.filter_by(is_active=True).first() is not None
     
     def __repr__(self):
         return f"<User(id={self.id}, username='{self.username}', email='{self.email}')>"

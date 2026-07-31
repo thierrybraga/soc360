@@ -97,13 +97,6 @@ class Role(CoreModel):
         except (json.JSONDecodeError, TypeError):
             return []
     
-    def has_permission(self, permission):
-        """Verifica se role tem uma permissão específica."""
-        permissions = self.permission_list
-        if '*' in permissions:
-            return True
-        return permission in permissions
-    
     def to_dict(self):
         """Converte para dicionário."""
         return {

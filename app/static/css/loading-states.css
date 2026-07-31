@@ -59,10 +59,8 @@
   border-radius: inherit;
 }
 
-.loading-overlay.dark {
-  background: rgba(0, 0, 0, 0.8);
-  color: white;
-}
+/* .loading-overlay.dark: defined in loading.css (loaded after this file,
+   so it always wins the cascade) — not redefined here to avoid drift. */
 
 /* Pulse Animation for Loading Elements */
 .pulse {
@@ -81,27 +79,10 @@
   }
 }
 
-/* Skeleton Loading */
-.skeleton {
-  background: linear-gradient(90deg, #f0f0f0 25%, #e0e0e0 50%, #f0f0f0 75%);
-  background-size: 200% 100%;
-  animation: skeleton-loading 1.5s infinite;
-}
-
-@keyframes skeleton-loading {
-  0% {
-    background-position: 200% 0;
-  }
-  100% {
-    background-position: -200% 0;
-  }
-}
-
-/* Dark mode skeleton */
-[data-bs-theme="dark"] .skeleton {
-  background: linear-gradient(90deg, #2a2a2a 25%, #3a3a3a 50%, #2a2a2a 75%);
-  background-size: 200% 100%;
-}
+/* .skeleton: defined in loading.css (loaded after this file, so it always
+   wins the cascade) — not redefined here to avoid drift. Its dark-mode
+   variant used to live here under [data-bs-theme="dark"], which this app
+   never sets (it uses [data-theme="dark"]), so it never matched anyway. */
 
 /* Loading Text */
 .loading-text {
@@ -130,10 +111,6 @@
   background: rgba(255, 255, 255, 0.7);
   z-index: 10;
   border-radius: inherit;
-}
-
-[data-bs-theme="dark"] .form-loading::after {
-  background: rgba(0, 0, 0, 0.7);
 }
 
 /* Progress Indicators */
@@ -293,10 +270,6 @@
   justify-content: center;
   z-index: 10;
   border-radius: inherit;
-}
-
-[data-bs-theme="dark"] .card.loading::after {
-  background: rgba(0, 0, 0, 0.8);
 }
 
 .card.loading::after {

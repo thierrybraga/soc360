@@ -35,12 +35,13 @@ $BOLD = "$ESC[1m"
 # Global variables
 $script:COMPOSE_CMD = $null
 $script:COMPOSE_FILE = $null
+$script:COMPOSE_DIR = "infra/compose"
 
 # Detectar compose file apropriado
-if (Test-Path (Join-Path $ProjectRoot "docker-compose.windows.yml")) {
-    $script:COMPOSE_FILE = "docker-compose.windows.yml"
-} elseif (Test-Path (Join-Path $ProjectRoot "docker-compose.yml")) {
-    $script:COMPOSE_FILE = "docker-compose.yml"
+if (Test-Path (Join-Path $ProjectRoot "$($script:COMPOSE_DIR)/docker-compose.windows.yml")) {
+    $script:COMPOSE_FILE = "$($script:COMPOSE_DIR)/docker-compose.windows.yml"
+} elseif (Test-Path (Join-Path $ProjectRoot "$($script:COMPOSE_DIR)/docker-compose.yml")) {
+    $script:COMPOSE_FILE = "$($script:COMPOSE_DIR)/docker-compose.yml"
 }
 
 # Habilitar BuildKit
@@ -346,15 +347,15 @@ function Test-Compose {
 
 function Get-ComposeFile {
     # Check for Windows-specific compose file
-    $windowsCompose = Join-Path $ProjectRoot "docker-compose.windows.yml"
-    $defaultCompose = Join-Path $ProjectRoot "docker-compose.yml"
-    
+    $windowsCompose = Join-Path $ProjectRoot "$($script:COMPOSE_DIR)/docker-compose.windows.yml"
+    $defaultCompose = Join-Path $ProjectRoot "$($script:COMPOSE_DIR)/docker-compose.yml"
+
     if (Test-Path $windowsCompose) {
-        $script:COMPOSE_FILE = "docker-compose.windows.yml"
+        $script:COMPOSE_FILE = "$($script:COMPOSE_DIR)/docker-compose.windows.yml"
         Write-Info "Using Windows-optimized compose file"
         Write-Debug "Compose file: $windowsCompose"
     } elseif (Test-Path $defaultCompose) {
-        $script:COMPOSE_FILE = "docker-compose.yml"
+        $script:COMPOSE_FILE = "$($script:COMPOSE_DIR)/docker-compose.yml"
         Write-Info "Using default compose file"
     } else {
         Write-Error "No docker-compose file found!"
@@ -525,7 +526,7 @@ function Build-Containers {
         $buildScript = {
             param($composeCmd, $composeFile, $workingDir)
             Set-Location $workingDir
-            $cmd = "$composeCmd -f `"$composeFile`" build --parallel"
+            $cmd = "$composeCmd --project-directory `"$workingDir`" -f `"$composeFile`" build --parallel"
             Invoke-Expression $cmd 2>&1
             $LASTEXITCODE
         }
@@ -589,7 +590,7 @@ function Start-Services {
     Write-Info "Starting services..."
     Write-Info "=========================================="
     
-    $upArgs = @("-f", $script:COMPOSE_FILE, "up", "-d")
+    $upArgs = @("--project-directory", $ProjectRoot, "-f", $script:COMPOSE_FILE, "up", "-d")
     Write-Debug "Command: $script:COMPOSE_CMD $upArgs"
     
     try {
@@ -618,7 +619,7 @@ function Start-Services {
         $count += $interval
         
         try {
-            $psArgs = @("-f", $script:COMPOSE_FILE, "ps", "--format", "json")
+            $psArgs = @("--project-directory", $ProjectRoot, "-f", $script:COMPOSE_FILE, "ps", "--format", "json")
             $result = & $script:COMPOSE_CMD.Split(" ")[0] $script:COMPOSE_CMD.Split(" ")[1..100] $psArgs 2>&1 | ConvertFrom-Json -ErrorAction SilentlyContinue
             
             if ($result) {
@@ -646,7 +647,7 @@ function Start-Services {
 function Stop-Services {
     Write-Info "Stopping services..."
     
-    $downArgs = @("-f", $script:COMPOSE_FILE, "down")
+    $downArgs = @("--project-directory", $ProjectRoot, "-f", $script:COMPOSE_FILE, "down")
     
     try {
         & $script:COMPOSE_CMD.Split(" ")[0] $script:COMPOSE_CMD.Split(" ")[1..100] $downArgs 2>&1 | ForEach-Object {
@@ -664,7 +665,7 @@ function Show-Status {
     Write-Banner
     Write-Host ""
     
-    $psArgs = @("-f", $script:COMPOSE_FILE, "ps")
+    $psArgs = @("--project-directory", $ProjectRoot, "-f", $script:COMPOSE_FILE, "ps")
     
     try {
         & $script:COMPOSE_CMD.Split(" ")[0] $script:COMPOSE_CMD.Split(" ")[1..100] $psArgs 2>&1 | ForEach-Object {
@@ -678,8 +679,8 @@ function Show-Status {
     Write-Host "${BOLD}Services:${NC}"
     Write-Host "  App:        http://localhost"
     Write-Host "  PostgreSQL: localhost:5432 (interno; banco 'soc360')"
-    Write-Host "  Airflow:    http://localhost:8080  (overlay docker-compose.airflow.yml)"
-    Write-Host "  Ollama:     http://localhost:11434 (overlay docker-compose.ollama.yml)"
+    Write-Host "  Airflow:    http://localhost:8080  (overlay infra/compose/docker-compose.airflow.yml)"
+    Write-Host "  Ollama:     http://localhost:11434 (overlay infra/compose/docker-compose.ollama.yml)"
     Write-Host ""
     Write-Host "${BOLD}Commands:${NC}"
     Write-Host "  Start:      .\deploy-windows.ps1 start"
@@ -734,7 +735,7 @@ switch ($Command.ToLower()) {
     "update" {
         Backup-BeforeUpdate
         Write-Info "Pulling latest images..."
-        $pullArgs = @("-f", $script:COMPOSE_FILE, "pull")
+        $pullArgs = @("--project-directory", $ProjectRoot, "-f", $script:COMPOSE_FILE, "pull")
         Invoke-RetryCommand -Command {
             & $script:COMPOSE_CMD.Split(" ")[0] $script:COMPOSE_CMD.Split(" ")[1..100] $pullArgs
             return $LASTEXITCODE

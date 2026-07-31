@@ -1,0 +1,72 @@
+# docker-compose.ollama.yml - Overlay opcional para LLM local via Ollama
+#
+# Uso (a partir da raiz do projeto):
+#   docker compose --project-directory . -f infra/compose/docker-compose.yml -f infra/compose/docker-compose.ollama.yml up -d
+#
+# Requisitos:
+#   - Imagem em ./infra/ollama/dockerfile
+#   - Mínimo 16GB RAM recomendado (ajuste MEMORY_LIMIT conforme modelo)
+#   - Defina AI_PROVIDER=ollama no .env
+
+services:
+  # -------------------------------------------------------------------------
+  # Ollama (LLM local)
+  # -------------------------------------------------------------------------
+  ollama:
+    build:
+      context: ./infra/ollama
+      dockerfile: dockerfile
+    container_name: soc360-ollama
+    restart: unless-stopped
+    ports:
+      - "${OLLAMA_PORT:-11434}:11434"
+    environment:
+      - OLLAMA_HOST=0.0.0.0
+      - OLLAMA_PORT=11434
+      - OLLAMA_NUM_THREADS=${OLLAMA_NUM_THREADS:-4}
+      - OLLAMA_NUM_PARALLEL=${OLLAMA_NUM_PARALLEL:-1}
+      - OLLAMA_MAX_LOADED_MODELS=1
+      - OLLAMA_LLM_LIBRARY=cpu_avx2
+      - OLLAMA_FLASH_ATTENTION=0
+      - OLLAMA_DEBUG=false
+      - OLLAMA_MODEL=${OLLAMA_MODEL:-gemma4:e4b}
+    volumes:
+      - soc360-ollama-data:/root/.ollama
+    networks:
+      - soc360-network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:11434/api/tags"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 300s
+    deploy:
+      resources:
+        limits:
+          cpus: '${CPU_LIMIT:-4}'
+          memory: '${MEMORY_LIMIT:-32G}'
+        reservations:
+          cpus: '${CPU_RESERVE:-2}'
+          memory: '${MEMORY_RESERVE:-16G}'
+
+  # Injeta variáveis de Ollama na aplicação principal
+  app:
+    environment:
+      - AI_PROVIDER=ollama
+      - OLLAMA_BASE_URL=http://ollama:11434/v1
+      - OLLAMA_MODEL=${OLLAMA_MODEL:-gemma4:e4b}
+    depends_on:
+      ollama:
+        condition: service_healthy
+
+  celery-worker:
+    environment:
+      - AI_PROVIDER=ollama
+      - OLLAMA_BASE_URL=http://ollama:11434/v1
+      - OLLAMA_MODEL=${OLLAMA_MODEL:-gemma4:e4b}
+    depends_on:
+      ollama:
+        condition: service_healthy
+
+volumes:
+  soc360-ollama-data:

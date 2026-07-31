@@ -16,12 +16,6 @@ from app.models.nvd import Vulnerability, CvssMetric, Weakness, Reference, Mitig
 from app.services.nvd import NVDOperationAlreadyRunning, NVDSyncService, SyncMode
 from app.models.inventory.category import AssetCategory
 from app.utils.security import role_required
-def _is_sqlite():
-    """Detecta se o banco em uso é SQLite verificando o URI configurado no app."""
-    from flask import current_app
-    uri = current_app.config.get('SQLALCHEMY_DATABASE_URI', '')
-    return uri.startswith('sqlite')
-
 
 logger = logging.getLogger(__name__)
 

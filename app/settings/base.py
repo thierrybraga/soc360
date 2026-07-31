@@ -5,6 +5,10 @@ Shared configurations across all environments.
 import os
 from datetime import timedelta
 from urllib.parse import quote as _urlquote
+from app.settings.database import postgres_database_config, apply_sqlite_config
+
+
+_CORE_DATABASE_URI, _DATABASE_BINDS = postgres_database_config()
 
 
 class BaseConfig:
@@ -61,14 +65,12 @@ class BaseConfig:
     DB_PUBLIC_USER = os.environ.get('DB_PUBLIC_USER', 'soc360')
     DB_PUBLIC_PASSWORD = os.environ.get('DB_PUBLIC_PASSWORD', 'change_me')
     
-    SQLALCHEMY_DATABASE_URI = f"postgresql://{DB_CORE_USER}:{DB_CORE_PASSWORD}@{DB_CORE_HOST}:{DB_CORE_PORT}/{DB_CORE_NAME}"
+    SQLALCHEMY_DATABASE_URI = _CORE_DATABASE_URI
     
     # 'core' é o bind DEFAULT (SQLALCHEMY_DATABASE_URI acima); apenas 'public'
     # é um bind nomeado. Evita duplicar o engine do core e o footgun de
     # autogenerate do Alembic (default == core).
-    SQLALCHEMY_BINDS = {
-        'public': f"postgresql://{DB_PUBLIC_USER}:{DB_PUBLIC_PASSWORD}@{DB_PUBLIC_HOST}:{DB_PUBLIC_PORT}/{DB_PUBLIC_NAME}"
-    }
+    SQLALCHEMY_BINDS = _DATABASE_BINDS
     
     # Redis
     REDIS_HOST = os.environ.get('REDIS_HOST', 'redis')
@@ -202,29 +204,9 @@ class BaseConfig:
     def fallback_to_sqlite(cls, app, db_uri):
         """Fallback to SQLite if PostgreSQL is not available."""
         if db_uri and db_uri.startswith('postgresql://') and not cls._is_postgres_available(db_uri):
-            basedir = os.path.abspath(os.path.dirname(os.path.dirname(os.path.dirname(__file__))))
-            db_path = os.path.join(basedir, 'instance', 'app.db')
+            from app.settings.database import DEFAULT_SQLITE_PATH
+            db_path = str(DEFAULT_SQLITE_PATH)
             app.logger.warning('PostgreSQL not accessible (%s). Falling back to SQLite at %s', db_uri, db_path)
-            app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///' + db_path
-            app.config['SQLALCHEMY_BINDS'] = {
-                'public': 'sqlite:///' + db_path
-            }
-            # NullPool: cada thread obtém sua própria conexão SQLite independente.
-            # timeout=30: threads aguardam até 30s pelo lock ao invés de falhar imediatamente.
-            # WAL mode via creator: permite leituras concorrentes durante escritas.
-            from sqlalchemy.pool import NullPool
-            import sqlite3
-
-            def _sqlite_creator():
-                conn = sqlite3.connect(db_path, timeout=30, check_same_thread=False)
-                conn.execute('PRAGMA journal_mode=WAL')
-                conn.execute('PRAGMA synchronous=NORMAL')
-                conn.execute('PRAGMA busy_timeout=30000')
-                return conn
-
-            app.config['SQLALCHEMY_ENGINE_OPTIONS'] = {
-                'creator': _sqlite_creator,
-                'poolclass': NullPool,
-            }
+            apply_sqlite_config(app, db_path)
             app.config['DB_CORE_HOST'] = 'localhost'
             app.config['DB_PUBLIC_HOST'] = 'localhost'

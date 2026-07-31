@@ -319,7 +319,7 @@ def password_reset_request():
         user = User.query.filter_by(email=email).first()
         
         if user:
-            token = user.get_reset_token()
+            token = user.generate_password_reset_token()
             send_reset_email(user, token)
             flash('Check your email for password reset instructions.', 'info')
         else:
@@ -337,19 +337,20 @@ def reset_password(token):
     if current_user.is_authenticated:
         return redirect(url_for('core.dashboard'))
     
-    user = User.verify_reset_token(token)
-    if not user:
+    user = User.query.filter_by(password_reset_token=token).first()
+    if not user or not user.verify_password_reset_token(token):
         flash('Invalid or expired token.', 'danger')
         return redirect(url_for('auth.login'))
-    
+
     form = PasswordResetForm()
     if form.validate_on_submit():
         is_strong, msg = validate_password_strength(form.password.data)
         if not is_strong:
             flash(msg, 'danger')
             return render_template('auth/password_reset.html', form=form)
-        
+
         user.set_password(form.password.data)
+        user.clear_password_reset_token()
         db.session.commit()
         
         current_app.logger.info(f'User {user.username} reset password')

@@ -182,20 +182,6 @@ class InitRootForm(FlaskForm):
     submit = SubmitField('Inicializar Sistema')
 
 
-class PasswordResetRequestForm(FlaskForm):
-    """Formulário para solicitar reset de senha."""
-    email = StringField(
-        'E-mail',
-        validators=[
-            DataRequired(message='E-mail é obrigatório'),
-            Email(message='E-mail inválido', check_deliverability=False)
-        ],
-        render_kw={'placeholder': 'Digite seu e-mail cadastrado', 'autocomplete': 'email'}
-    )
-    
-    submit = SubmitField('Enviar Link de Reset')
-
-
 class PasswordResetForm(FlaskForm):
     """Formulário para redefinir senha."""
     password = PasswordField(

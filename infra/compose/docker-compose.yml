@@ -1,0 +1,325 @@
+# docker-compose.yml - SOC360 v1.0 (Core Stack)
+# Serviços padrão: nginx, app, celery-worker, celery-beat, redis
+#
+# Uso (a partir da raiz do projeto):
+#   docker compose --project-directory . -f infra/compose/docker-compose.yml up -d
+#
+# Serviços opcionais (usar com overlay):
+#   Ollama (LLM local):  docker compose --project-directory . -f infra/compose/docker-compose.yml -f infra/compose/docker-compose.ollama.yml up -d
+#   Airflow (sync/DAGs): docker compose --project-directory . -f infra/compose/docker-compose.yml -f infra/compose/docker-compose.airflow.yml up -d
+
+x-app-defaults: &app-defaults
+  build:
+    context: .
+    dockerfile: Dockerfile
+    target: production
+  image: soc360:1.0.0
+  restart: unless-stopped
+  networks:
+    - soc360-network
+  environment: &app-env
+    - FLASK_ENV=production
+    - FLASK_APP=app:create_app
+    - FLASK_DEBUG=0
+    - PYTHONPATH=/app
+    - SECRET_KEY_FILE=/run/secrets/secret_key
+
+    # PostgreSQL (obrigatório em produção — SQLite é apenas para modo local).
+    # core (bind default) e public apontam para o MESMO banco físico, pois há
+    # relacionamentos cross-bind (ex.: M2M vulnerability_organizations) que só
+    # funcionam co-locados. A senha vem do secret postgres_password (o
+    # entrypoint a propaga para DB_*_PASSWORD e monta a DATABASE_URL).
+    - DB_CORE_HOST=postgres
+    - DB_CORE_PORT=5432
+    - DB_CORE_NAME=${POSTGRES_DB:-soc360}
+    - DB_CORE_USER=${POSTGRES_USER:-soc360}
+    - DB_PUBLIC_HOST=postgres
+    - DB_PUBLIC_PORT=5432
+    - DB_PUBLIC_NAME=${POSTGRES_DB:-soc360}
+    - DB_PUBLIC_USER=${POSTGRES_USER:-soc360}
+    - POSTGRES_PASSWORD_FILE=/run/secrets/postgres_password
+
+    # Redis (obrigatório)
+    - REDIS_HOST=redis
+    - REDIS_PORT=6379
+    - REDIS_PASSWORD_FILE=/run/secrets/redis_password
+
+    # AI Provider (padrão: openai — usa demo mode sem OPENAI_API_KEY)
+    # Para usar Ollama local: AI_PROVIDER=ollama + overlay docker-compose.ollama.yml
+    - AI_PROVIDER=${AI_PROVIDER:-openai}
+    - OPENAI_API_KEY=${OPENAI_API_KEY:-}
+    - OPENAI_MODEL=${OPENAI_MODEL:-gpt-4o-mini}
+
+    # External APIs
+    - NVD_API_KEY=${NVD_API_KEY:-}
+
+    # Email (SMTP)
+    - MAIL_SERVER=${MAIL_SERVER:-}
+    - MAIL_PORT=${MAIL_PORT:-587}
+    - MAIL_USE_TLS=true
+    - MAIL_USERNAME=${MAIL_USERNAME:-}
+    - MAIL_PASSWORD=${MAIL_PASSWORD:-}
+    - MAIL_DEFAULT_SENDER=${MAIL_DEFAULT_SENDER:-noreply@soc360.local}
+
+    # Security
+    - SESSION_COOKIE_SECURE=true
+    - SESSION_COOKIE_HTTPONLY=true
+    - SESSION_COOKIE_SAMESITE=Lax
+    - WTF_CSRF_ENABLED=true
+
+    # Observability
+    - LOG_LEVEL=${LOG_LEVEL:-WARNING}
+
+    # App Tuning
+    - WORKERS=${WORKERS:-2}
+    - THREADS=${THREADS:-2}
+    - PORT=5000
+  volumes:
+    - soc360-logs:/app/logs
+    - soc360-uploads:/app/uploads
+    - soc360-reports:/app/reports
+    - soc360-instance:/app/instance
+    - soc360-static:/app/app/static
+  healthcheck:
+    test: ["CMD", "curl", "-sf", "http://localhost:5000/health"]
+    interval: 30s
+    timeout: 10s
+    retries: 5
+    start_period: 180s
+  deploy:
+    resources:
+      limits:
+        cpus: '2'
+        memory: 2G
+      reservations:
+        cpus: '0.5'
+        memory: 512M
+
+x-celery-defaults: &celery-defaults
+  <<: *app-defaults
+  healthcheck:
+    disable: true
+
+# =============================================================================
+# SERVICES (Core Stack)
+# =============================================================================
+services:
+  # -------------------------------------------------------------------------
+  # Reverse Proxy (NGINX)
+  # -------------------------------------------------------------------------
+  nginx:
+    build:
+      context: ./infra/docker/nginx
+      dockerfile: Dockerfile
+    container_name: soc360-nginx
+    restart: unless-stopped
+    ports:
+      - "${HTTP_PORT:-80}:8080"
+      - "${HTTPS_PORT:-443}:8443"
+    volumes:
+      - ./infra/docker/nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./infra/docker/nginx/conf.d:/etc/nginx/conf.d:ro
+      - ./infra/docker/nginx/ssl:/etc/nginx/ssl:ro
+      - ./infra/docker/nginx/html:/usr/share/nginx/html:ro
+      - soc360-static:/app/app/static:ro
+      - soc360-uploads:/app/uploads:ro
+      - soc360-reports:/app/reports:ro
+      - soc360-nginx-logs:/var/log/nginx
+    networks:
+      - soc360-network
+    depends_on:
+      app:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-sf", "http://localhost:8080/nginx-health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 256M
+        reservations:
+          cpus: '0.1'
+          memory: 64M
+
+  # -------------------------------------------------------------------------
+  # Flask Application (Gunicorn)
+  # -------------------------------------------------------------------------
+  app:
+    <<: *app-defaults
+    container_name: soc360-app
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    entrypoint: ["/entrypoint.sh"]
+    command: ["gunicorn", "app:create_app()"]
+    secrets:
+      - secret_key
+      - redis_password
+      - postgres_password
+
+  # -------------------------------------------------------------------------
+  # Celery Worker
+  # -------------------------------------------------------------------------
+  celery-worker:
+    <<: *celery-defaults
+    container_name: soc360-celery-worker
+    depends_on:
+      app:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    command: ["celery", "-A", "scripts.workers.celery_worker.celery", "worker", "--loglevel=info", "--concurrency=${CELERY_WORKERS:-2}"]
+    healthcheck:
+      test: ["CMD-SHELL", "celery -A scripts.workers.celery_worker.celery inspect ping --timeout 5 || exit 1"]
+      interval: 30s
+      timeout: 15s
+      retries: 3
+      start_period: 120s
+    deploy:
+      resources:
+        limits:
+          cpus: '2'
+          memory: 4G
+        reservations:
+          cpus: '0.5'
+          memory: 1G
+    secrets:
+      - secret_key
+      - redis_password
+      - postgres_password
+
+  # -------------------------------------------------------------------------
+  # Celery Beat (Scheduler)
+  # -------------------------------------------------------------------------
+  celery-beat:
+    <<: *celery-defaults
+    container_name: soc360-celery-beat
+    depends_on:
+      app:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    # Schedule file in /app/instance (persistent volume) prevents corruption on restart
+    command: ["celery", "-A", "scripts.workers.celery_worker.celery", "beat",
+              "--loglevel=info",
+              "--schedule=/app/instance/celerybeat-schedule",
+              "--pidfile=/app/instance/celerybeat.pid"]
+    secrets:
+      - secret_key
+      - redis_password
+      - postgres_password
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 512M
+        reservations:
+          cpus: '0.1'
+          memory: 128M
+
+  # -------------------------------------------------------------------------
+  # PostgreSQL (banco primário — core + public)
+  # -------------------------------------------------------------------------
+  postgres:
+    image: postgres:16-alpine
+    container_name: soc360-postgres
+    restart: unless-stopped
+    environment:
+      - POSTGRES_USER=${POSTGRES_USER:-soc360}
+      - POSTGRES_DB=${POSTGRES_DB:-soc360}
+      - POSTGRES_PASSWORD_FILE=/run/secrets/postgres_password
+      # Inicialização determinística e collation estável
+      - POSTGRES_INITDB_ARGS=--encoding=UTF8 --locale=C
+    volumes:
+      - soc360-postgres-data:/var/lib/postgresql/data
+    networks:
+      - soc360-network
+    # Porta exposta apenas se DB_EXPOSE definido (vazio = somente interno)
+    ports:
+      - "${DB_EXPOSE:-127.0.0.1:5432}:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-soc360} -d ${POSTGRES_DB:-soc360}"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
+    deploy:
+      resources:
+        limits:
+          cpus: '2'
+          memory: 2G
+        reservations:
+          cpus: '0.25'
+          memory: 256M
+    secrets:
+      - postgres_password
+
+  # -------------------------------------------------------------------------
+  # Redis (Cache, Sessions, Celery Broker)
+  # -------------------------------------------------------------------------
+  redis:
+    image: redis:7-alpine
+    container_name: soc360-redis
+    restart: unless-stopped
+    command: ["sh", "-c", "redis-server --appendonly yes --maxmemory 256mb --maxmemory-policy allkeys-lru --requirepass $$(cat /run/secrets/redis_password)"]
+    volumes:
+      - soc360-redis-data:/data
+    networks:
+      - soc360-network
+    healthcheck:
+      test: ["CMD-SHELL", "redis-cli -a $$(cat /run/secrets/redis_password) ping | grep PONG"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 512M
+        reservations:
+          cpus: '0.1'
+          memory: 128M
+    secrets:
+      - redis_password
+
+# =============================================================================
+# SECRETS (Production)
+# =============================================================================
+secrets:
+  secret_key:
+    file: ./secrets/secret_key.txt
+  redis_password:
+    file: ./secrets/redis_password.txt
+  postgres_password:
+    file: ./secrets/postgres_password.txt
+
+# =============================================================================
+# NETWORKS & VOLUMES
+# =============================================================================
+networks:
+  soc360-network:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.28.0.0/16
+
+volumes:
+  soc360-logs:
+  soc360-uploads:
+  soc360-reports:
+  soc360-instance:
+  soc360-nginx-logs:
+  soc360-static:
+  soc360-redis-data:
+  soc360-postgres-data:

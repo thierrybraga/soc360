@@ -8,9 +8,6 @@ from sqlalchemy import JSON, String, Text
 from sqlalchemy.dialects.postgresql import JSONB as PG_JSONB, INET as PG_INET, ARRAY as PG_ARRAY
 from sqlalchemy.types import TypeDecorator
 
-# Determine SQLite usage from environment and known fallback path
-basedir = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-db_path = os.path.join(basedir, 'instance', 'app.db')
 
 def _resolve_use_sqlite() -> bool:
     """Decide the column-type dialect from the SAME signals that configure the
